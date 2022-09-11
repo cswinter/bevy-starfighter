@@ -26,6 +26,8 @@ pub fn app() -> App {
     .add_system(check_boundary_collision)
     .add_system(spawn_asteroids)
     .add_system(detect_collisions)
+    .add_system(expire_bullets)
+    .add_system(cooldowns)
     .add_plugins(DefaultPlugins)
     .add_startup_system(setup);
     app
@@ -76,6 +78,10 @@ fn spawn_player(
             max_velocity: 500.0,
             acceleration: 20.0,
             turn_speed: 0.07,
+            bullet_speed: 1500.0,
+            bullet_lifetime: 0.5,
+            bullet_cooldown: 0.15,
+            remaining_bullet_cooldown: 0.0,
         })
         .insert(RigidBody::Dynamic)
         .insert(PhysicMaterial {
@@ -102,6 +108,49 @@ fn spawn_player(
                 .with_translation(Vec3::new(0.0, 0.0, 1.0)),
             material: materials
                 .add(ColorMaterial::from(Color::rgba(0.2, 0.3, 0.6, 1.0))),
+            ..default()
+        });
+}
+
+fn spawn_bullet(
+    cmd: &mut Commands,
+    meshes: &mut ResMut<Assets<Mesh>>,
+    materials: &mut ResMut<Assets<ColorMaterial>>,
+    position: Vec3,
+    velocity: Vec3,
+    lifetime: f32,
+) {
+    let radius = 3.0;
+    let circle = Circle::new(radius);
+    let handle = meshes.add(circle.into());
+    cmd.spawn()
+        .insert(Bullet {
+            remaining_lifetime: lifetime,
+        })
+        .insert(RigidBody::Dynamic)
+        .insert(PhysicMaterial {
+            restitution: 1.0,
+            density: 2000.0,
+            friction: 0.5,
+        })
+        .insert(CollisionShape::ConvexHull {
+            points: vec![
+                5.0 * Vec3::new(0.0, 0.4, 0.0),
+                5.0 * Vec3::new(-0.3, -0.4, 0.0),
+                5.0 * Vec3::new(0.3, -0.4, 0.0),
+            ],
+            border_radius: None,
+        })
+        .insert(Velocity::from_linear(velocity))
+        .insert(RotationConstraints::lock())
+        .insert(CollisionType::Bullet)
+        .insert_bundle(MaterialMesh2dBundle {
+            mesh: handle.into(),
+            transform: Transform::default()
+                .with_scale(Vec3::splat(1.0))
+                .with_translation(position),
+            material: materials
+                .add(ColorMaterial::from(Color::rgb(0.8, 0.8, 0.9))),
             ..default()
         });
 }
@@ -212,9 +261,9 @@ fn spawn_asteroids(
 }
 
 fn keyboard_events(
-    // mut commands: Commands,
-    // mut meshes: ResMut<Assets<Mesh>>,
-    // mut materials: ResMut<Assets<ColorMaterial>>,
+    mut cmd: Commands,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<ColorMaterial>>,
     keys: Res<Input<KeyCode>>,
     // mut key_evr: EventReader<KeyboardInput>,
     mut fighter: Query<(&mut Fighter, &mut Transform, &mut Velocity)>,
@@ -229,7 +278,23 @@ fn keyboard_events(
     //     //Quat::from_xyzw(pos.x, pos.y, 0.0, 0.0),
     //     ..default()
     // };
-    for (fighter, mut transform, mut velocity) in &mut fighter {
+    for (mut fighter, mut transform, mut velocity) in &mut fighter {
+        let rot = transform.rotation.xyz();
+        let mut angle = transform.rotation.to_axis_angle().1;
+        if rot.z < 0.0 {
+            angle = -angle;
+        }
+        let angle2 = angle + std::f32::consts::PI / 2.0;
+
+        if keys.pressed(KeyCode::Up) || keys.pressed(KeyCode::W) {
+            let thrust = Vec3::new(angle2.cos(), angle2.sin(), 0.0)
+                * fighter.acceleration;
+            velocity.linear += thrust;
+            if velocity.linear.length() > fighter.max_velocity {
+                velocity.linear =
+                    velocity.linear.normalize() * fighter.max_velocity;
+            }
+        }
         let rotation =
             if keys.pressed(KeyCode::Left) || keys.pressed(KeyCode::A) {
                 Some(fighter.turn_speed)
@@ -239,31 +304,26 @@ fn keyboard_events(
                 None
             };
         if let Some(dr) = rotation {
-            let rot = transform.rotation.xyz();
-            let mut angle = transform.rotation.to_axis_angle().1;
-            if rot.z < 0.0 {
-                angle = -angle;
-            }
             *transform = Transform {
                 rotation: Quat::from_rotation_z(angle + dr),
                 ..*transform
             };
         }
 
-        if keys.pressed(KeyCode::Up) || keys.pressed(KeyCode::W) {
-            let rot = transform.rotation.xyz();
-            let mut angle = transform.rotation.to_axis_angle().1;
-            if rot.z < 0.0 {
-                angle = -angle;
-            }
-            angle += std::f32::consts::PI / 2.0;
-            let thrust =
-                Vec3::new(angle.cos(), angle.sin(), 0.0) * fighter.acceleration;
-            velocity.linear += thrust;
-            if velocity.linear.length() > fighter.max_velocity {
-                velocity.linear =
-                    velocity.linear.normalize() * fighter.max_velocity;
-            }
+        if keys.pressed(KeyCode::Space)
+            && fighter.remaining_bullet_cooldown < 0.0
+        {
+            spawn_bullet(
+                &mut cmd,
+                &mut meshes,
+                &mut materials,
+                transform.translation,
+                velocity.linear
+                    + Vec3::new(angle2.cos(), angle2.sin(), 0.0)
+                        * fighter.bullet_speed,
+                fighter.bullet_lifetime,
+            );
+            fighter.remaining_bullet_cooldown = fighter.bullet_cooldown;
         }
 
         // if keys.pressed(KeyCode::Left) {
@@ -328,11 +388,39 @@ fn create_fighter_mesh() -> Mesh {
     mesh
 }
 
+fn expire_bullets(
+    mut cmd: Commands,
+    time: Res<Time>,
+    mut bullets: Query<(Entity, &mut Bullet)>,
+) {
+    for (entity, mut bullet) in &mut bullets.iter_mut() {
+        bullet.remaining_lifetime -= time.delta_seconds();
+        if bullet.remaining_lifetime <= 0.0 {
+            cmd.entity(entity).despawn();
+        }
+    }
+}
+
+fn cooldowns(time: Res<Time>, mut fighter: Query<&mut Fighter>) {
+    for mut fighter in &mut fighter.iter_mut() {
+        fighter.remaining_bullet_cooldown -= time.delta_seconds();
+    }
+}
+
 #[derive(Component)]
 struct Fighter {
     max_velocity: f32,
     acceleration: f32,
     turn_speed: f32,
+    bullet_cooldown: f32,
+    bullet_speed: f32,
+    bullet_lifetime: f32,
+    remaining_bullet_cooldown: f32,
+}
+
+#[derive(Component)]
+struct Bullet {
+    remaining_lifetime: f32,
 }
 
 #[derive(Component)]
@@ -342,6 +430,7 @@ struct Asteroid;
 enum CollisionType {
     Asteroid,
     Fighter,
+    Bullet,
 }
 
 struct GameOver;
