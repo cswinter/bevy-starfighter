@@ -24,3 +24,5 @@ lto = true
 bevy = "0.8.1"
 image = "0.24.3"
 winit = "0.26.1"
+heron = { version = "4", features = ["2d"] }
+rand = { version = "0.8.5", features = ["small_rng"] }
