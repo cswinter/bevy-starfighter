@@ -54,7 +54,7 @@ fn main() {
     // Mount the DOM
     yew::start_app::<Root>();
     // Start the Bevy App
-    let mut app = my_game::app();
+    let mut app = my_game::app(None);
     info!("Starting launcher: WASM");
     app.run();
 }

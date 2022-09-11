@@ -4,6 +4,7 @@ use bevy::prelude::*;
 use bevy::render::mesh::Indices;
 use bevy::render::render_resource::PrimitiveTopology;
 use bevy::sprite::MaterialMesh2dBundle;
+use bevy::time::FixedTimestep;
 use entity_gym_rs::agent::{self, Action, Agent, AgentOps, Featurizable, Obs};
 use heron::prelude::*;
 use rand::rngs::SmallRng;
@@ -11,32 +12,66 @@ use rand::{Rng, SeedableRng};
 
 pub const LAUNCHER_TITLE: &str = "Bevy Shell - Template";
 
-pub fn app() -> App {
+pub fn base_app(seed: u64, timestep: Option<f64>) -> App {
+    let mut main_system = SystemSet::new()
+        .with_system(reset)
+        .with_system(check_boundary_collision)
+        .with_system(spawn_asteroids)
+        .with_system(detect_collisions)
+        .with_system(expire_bullets)
+        .with_system(cooldowns)
+        .with_system(ai);
+    if let Some(timestep) = timestep {
+        main_system =
+            main_system.with_run_criteria(FixedTimestep::step(timestep));
+    }
     let mut app = App::new();
+    app.add_plugin(PhysicsPlugin::default())
+        .insert_resource(SmallRng::seed_from_u64(seed))
+        .insert_resource(ClearColor(Color::rgb(0.0, 0.0, 0.0)))
+        .insert_resource(Score(0))
+        .insert_resource(RemainingTime(30.0))
+        .add_event::<GameOver>()
+        .add_system_set(main_system)
+        .insert_non_send_resource(Player(agent::random()))
+        .add_startup_system(setup);
+    app
+}
+
+pub fn app(agent_path: Option<String>) -> App {
+    let mut app = base_app(0, Some(1.0 / 90.0));
     app.insert_resource(WindowDescriptor {
         title: LAUNCHER_TITLE.to_string(),
+        width: 2000.0,
+        height: 1000.0,
         canvas: Some("#bevy".to_string()),
         fit_canvas_to_parent: true,
         ..Default::default()
     })
-    .add_plugin(PhysicsPlugin::default())
-    .insert_resource(SmallRng::seed_from_u64(42))
-    .insert_resource(ClearColor(Color::rgb(0.0, 0.0, 0.0)))
-    .insert_resource(Score(0))
-    .insert_resource(RemainingTime(30.0))
-    .add_event::<GameOver>()
+    .insert_non_send_resource(match agent_path {
+        Some(path) => Player(agent::load(path)),
+        None => Player(agent::random()),
+    })
     .add_system(keyboard_events)
-    .add_system(reset)
-    .add_system(check_boundary_collision)
-    .add_system(spawn_asteroids)
-    .add_system(detect_collisions)
-    .add_system(expire_bullets)
-    .add_system(cooldowns)
-    .add_system(ai)
-    .insert_non_send_resource(Player(agent::random()))
-    .add_plugins(DefaultPlugins)
-    .add_startup_system(setup);
+    .add_plugins(DefaultPlugins);
     app
+}
+
+#[cfg(feature = "python")]
+pub fn run_headless(
+    _: Config,
+    agent: entity_gym_rs::agent::TrainAgent,
+    seed: u64,
+) {
+    use bevy::app::ScheduleRunnerSettings;
+    use std::time::Duration;
+    base_app(seed, None)
+        .insert_resource(ScheduleRunnerSettings::run_loop(
+            Duration::from_secs_f64(0.0),
+        ))
+        .insert_non_send_resource(Player(Box::new(agent)))
+        .add_plugins(MinimalPlugins)
+        .run();
 }
 
 #[allow(clippy::too_many_arguments)]
