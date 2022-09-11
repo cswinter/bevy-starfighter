@@ -20,6 +20,8 @@ pub fn app() -> App {
     .add_plugin(PhysicsPlugin::default())
     .insert_resource(SmallRng::seed_from_u64(42))
     .insert_resource(ClearColor(Color::rgb(0.0, 0.0, 0.0)))
+    .insert_resource(Score(0))
+    .insert_resource(RemainingTime(30.0))
     .add_event::<GameOver>()
     .add_system(keyboard_events)
     .add_system(reset)
@@ -33,18 +35,28 @@ pub fn app() -> App {
     app
 }
 
+#[allow(clippy::too_many_arguments)]
 fn reset(
     mut game_over: EventReader<GameOver>,
     mut cmd: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
     mut query: Query<Entity, With<Asteroid>>,
+    mut score: ResMut<Score>,
+    mut fighter: Query<Entity, With<Fighter>>,
+    mut remaining_time: ResMut<RemainingTime>,
 ) {
     if let Some(GameOver) = game_over.iter().next() {
+        println!("Game Over! Score: {}", score.0);
+        score.0 = 0;
         // Despawn all entities
         for entity in query.iter_mut() {
             cmd.entity(entity).despawn_recursive();
         }
+        for entity in fighter.iter_mut() {
+            cmd.entity(entity).despawn_recursive();
+        }
+        remaining_time.0 = 30.0;
         spawn_player(&mut cmd, &mut meshes, &mut materials);
     }
 }
@@ -160,7 +172,9 @@ fn detect_collisions(
     mut events: EventReader<CollisionEvent>,
     collision_type: Query<&CollisionType>,
     mut game_over: EventWriter<GameOver>,
-    mut asteroids: Query<&mut Asteroid>,
+    mut asteroids: Query<(&mut Asteroid, &mut Handle<ColorMaterial>)>,
+    mut materials: ResMut<Assets<ColorMaterial>>,
+    mut score: ResMut<Score>,
 ) {
     for event in events.iter() {
         if let CollisionEvent::Started(data1, data2) = event {
@@ -178,20 +192,36 @@ fn detect_collisions(
                 }
                 (CollisionType::Bullet, CollisionType::Asteroid) => {
                     cmd.entity(data1.rigid_body_entity()).despawn();
-                    let mut asteroid =
+                    let (mut asteroid, mut material) =
                         asteroids.get_mut(data2.rigid_body_entity()).unwrap();
                     asteroid.health -= 1.0;
                     if asteroid.health <= 0.0 {
                         cmd.entity(data2.rigid_body_entity()).despawn();
+                        score.0 += 1;
+                    } else {
+                        *material =
+                            materials.add(ColorMaterial::from(Color::rgb(
+                                1.0 - 0.08 * asteroid.health,
+                                1.0 - 0.1 * asteroid.health,
+                                1.0 - 0.1 * asteroid.health,
+                            )));
                     }
                 }
                 (CollisionType::Asteroid, CollisionType::Bullet) => {
                     cmd.entity(data2.rigid_body_entity()).despawn();
-                    let mut asteroid =
+                    let (mut asteroid, mut material) =
                         asteroids.get_mut(data1.rigid_body_entity()).unwrap();
                     asteroid.health -= 1.0;
                     if asteroid.health <= 0.0 {
                         cmd.entity(data1.rigid_body_entity()).despawn();
+                        score.0 += 1;
+                    } else {
+                        *material =
+                            materials.add(ColorMaterial::from(Color::rgb(
+                                1.0 - 0.08 * asteroid.health,
+                                1.0 - 0.1 * asteroid.health,
+                                1.0 - 0.1 * asteroid.health,
+                            )));
                     }
                 }
                 _ => {}
@@ -420,9 +450,18 @@ fn expire_bullets(
     }
 }
 
-fn cooldowns(time: Res<Time>, mut fighter: Query<&mut Fighter>) {
+fn cooldowns(
+    time: Res<Time>,
+    mut fighter: Query<&mut Fighter>,
+    mut timer: ResMut<RemainingTime>,
+    mut game_over: EventWriter<GameOver>,
+) {
     for mut fighter in &mut fighter.iter_mut() {
         fighter.remaining_bullet_cooldown -= time.delta_seconds();
+    }
+    timer.0 -= time.delta_seconds();
+    if timer.0 <= 0.0 {
+        game_over.send(GameOver);
     }
 }
 
@@ -455,3 +494,7 @@ enum CollisionType {
 }
 
 struct GameOver;
+
+struct Score(u32);
+
+struct RemainingTime(f32);
