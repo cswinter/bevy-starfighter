@@ -160,6 +160,7 @@ fn detect_collisions(
     mut events: EventReader<CollisionEvent>,
     collision_type: Query<&CollisionType>,
     mut game_over: EventWriter<GameOver>,
+    mut asteroids: Query<&mut Asteroid>,
 ) {
     for event in events.iter() {
         if let CollisionEvent::Started(data1, data2) = event {
@@ -174,6 +175,24 @@ fn detect_collisions(
                 (CollisionType::Asteroid, CollisionType::Fighter) => {
                     cmd.entity(data2.rigid_body_entity()).despawn();
                     game_over.send(GameOver);
+                }
+                (CollisionType::Bullet, CollisionType::Asteroid) => {
+                    cmd.entity(data1.rigid_body_entity()).despawn();
+                    let mut asteroid =
+                        asteroids.get_mut(data2.rigid_body_entity()).unwrap();
+                    asteroid.health -= 1.0;
+                    if asteroid.health <= 0.0 {
+                        cmd.entity(data2.rigid_body_entity()).despawn();
+                    }
+                }
+                (CollisionType::Asteroid, CollisionType::Bullet) => {
+                    cmd.entity(data2.rigid_body_entity()).despawn();
+                    let mut asteroid =
+                        asteroids.get_mut(data1.rigid_body_entity()).unwrap();
+                    asteroid.health -= 1.0;
+                    if asteroid.health <= 0.0 {
+                        cmd.entity(data1.rigid_body_entity()).despawn();
+                    }
                 }
                 _ => {}
             }
@@ -228,7 +247,7 @@ fn spawn_asteroids(
         let circle = Circle::new(size.sqrt());
         let handle = meshes.add(circle.into());
         cmd.spawn()
-            .insert(Asteroid)
+            .insert(Asteroid { health: 5.0 })
             .insert(RigidBody::Dynamic)
             .insert(PhysicMaterial {
                 restitution: 1.0,
@@ -424,7 +443,9 @@ struct Bullet {
 }
 
 #[derive(Component)]
-struct Asteroid;
+struct Asteroid {
+    health: f32,
+}
 
 #[derive(Component)]
 enum CollisionType {
