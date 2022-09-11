@@ -1,8 +1,10 @@
+use bevy::app::AppExit;
 use bevy::prelude::shape::{Circle, Quad};
 use bevy::prelude::*;
 use bevy::render::mesh::Indices;
 use bevy::render::render_resource::PrimitiveTopology;
 use bevy::sprite::MaterialMesh2dBundle;
+use entity_gym_rs::agent::{self, Action, Agent, AgentOps, Featurizable, Obs};
 use heron::prelude::*;
 use rand::rngs::SmallRng;
 use rand::{Rng, SeedableRng};
@@ -30,6 +32,8 @@ pub fn app() -> App {
     .add_system(detect_collisions)
     .add_system(expire_bullets)
     .add_system(cooldowns)
+    .add_system(ai)
+    .insert_non_send_resource(Player(agent::random()))
     .add_plugins(DefaultPlugins)
     .add_startup_system(setup);
     app
@@ -277,7 +281,10 @@ fn spawn_asteroids(
         let circle = Circle::new(size.sqrt());
         let handle = meshes.add(circle.into());
         cmd.spawn()
-            .insert(Asteroid { health: 5.0 })
+            .insert(Asteroid {
+                health: 5.0,
+                radius: size.sqrt(),
+            })
             .insert(RigidBody::Dynamic)
             .insert(PhysicMaterial {
                 restitution: 1.0,
@@ -465,6 +472,110 @@ fn cooldowns(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
+fn ai(
+    mut cmd: Commands,
+    mut player: NonSendMut<Player>,
+    mut fighter: Query<(&mut Fighter, &mut Transform, &mut Velocity)>,
+    mut exit: EventWriter<AppExit>,
+    asteroids: Query<(&Asteroid, &Transform, &Velocity), Without<Fighter>>,
+    remaining_time: Res<RemainingTime>,
+    score: Res<Score>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<ColorMaterial>>,
+) {
+    if let Some((mut fighter, mut transform, mut velocity)) =
+        fighter.iter_mut().next()
+    {
+        let pos = transform.translation;
+        let vel = velocity.linear;
+        let obs = Obs::new(score.0 as f32)
+            // TODO direction
+            .entities([FighterFeats {
+                x: pos.x,
+                y: pos.y,
+                dx: vel.x,
+                dy: vel.y,
+                direction_x: 0.0,
+                direction_y: 0.0,
+                remaining_time: remaining_time.0,
+            }])
+            .entities(asteroids.iter().map(
+                |(asteroid, transform, velocity)| {
+                    let pos = transform.translation;
+                    let vel = velocity.linear;
+                    AsteroidFeats {
+                        health: asteroid.health,
+                        radius: asteroid.radius,
+                        x: pos.x,
+                        y: pos.y,
+                        dx: vel.x,
+                        dy: vel.y,
+                    }
+                },
+            ));
+        let action = player.0.act::<FighterAction>(&obs);
+        match action {
+            Some(a) => {
+                let rot = transform.rotation.xyz();
+                let mut angle = transform.rotation.to_axis_angle().1;
+                if rot.z < 0.0 {
+                    angle = -angle;
+                }
+                let angle2 = angle + std::f32::consts::PI / 2.0;
+
+                match a {
+                    FighterAction::TurnLeft => {
+                        *transform = Transform {
+                            rotation: Quat::from_rotation_z(
+                                angle + fighter.turn_speed,
+                            ),
+                            ..*transform
+                        };
+                    }
+                    FighterAction::TurnRight => {
+                        *transform = Transform {
+                            rotation: Quat::from_rotation_z(
+                                angle - fighter.turn_speed,
+                            ),
+                            ..*transform
+                        };
+                    }
+                    FighterAction::Thrust => {
+                        let thrust = Vec3::new(angle2.cos(), angle2.sin(), 0.0)
+                            * fighter.acceleration;
+                        velocity.linear += thrust;
+                        if velocity.linear.length() > fighter.max_velocity {
+                            velocity.linear = velocity.linear.normalize()
+                                * fighter.max_velocity;
+                        }
+                    }
+                    FighterAction::Shoot => {
+                        if fighter.remaining_bullet_cooldown <= 0.0 {
+                            spawn_bullet(
+                                &mut cmd,
+                                &mut meshes,
+                                &mut materials,
+                                transform.translation,
+                                velocity.linear
+                                    + Vec3::new(
+                                        angle2.cos(),
+                                        angle2.sin(),
+                                        0.0,
+                                    ) * fighter.bullet_speed,
+                                fighter.bullet_lifetime,
+                            );
+                            fighter.remaining_bullet_cooldown =
+                                fighter.bullet_cooldown;
+                        }
+                    }
+                }
+            }
+            None => exit.send(AppExit),
+        }
+    }
+}
+
 #[derive(Component)]
 struct Fighter {
     max_velocity: f32,
@@ -484,6 +595,7 @@ struct Bullet {
 #[derive(Component)]
 struct Asteroid {
     health: f32,
+    radius: f32,
 }
 
 #[derive(Component)]
@@ -498,3 +610,34 @@ struct GameOver;
 struct Score(u32);
 
 struct RemainingTime(f32);
+
+struct Player(pub Box<dyn Agent>);
+
+#[derive(Featurizable)]
+struct AsteroidFeats {
+    health: f32,
+    radius: f32,
+    x: f32,
+    y: f32,
+    dx: f32,
+    dy: f32,
+}
+
+#[derive(Featurizable)]
+struct FighterFeats {
+    x: f32,
+    y: f32,
+    dx: f32,
+    dy: f32,
+    direction_x: f32,
+    direction_y: f32,
+    remaining_time: f32,
+}
+
+#[derive(Action)]
+enum FighterAction {
+    TurnLeft,
+    TurnRight,
+    Thrust,
+    Shoot,
+}

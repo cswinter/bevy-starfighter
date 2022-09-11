@@ -26,3 +26,8 @@ image = "0.24.3"
 winit = "0.26.1"
 heron = { version = "4", features = ["2d"] }
 rand = { version = "0.8.5", features = ["small_rng"] }
+entity-gym-rs = "0.4.3"
+pyo3 = { version = "0.15", features = ["extension-module"], optional = true }
+
+[features]
+python = ["pyo3", "entity-gym-rs/python"]#, "ragged-buffer/python"]
