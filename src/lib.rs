@@ -1,3 +1,6 @@
+#[cfg(feature = "python")]
+pub mod python;
+
 use bevy::app::AppExit;
 use bevy::prelude::shape::{Circle, Quad};
 use bevy::prelude::*;
@@ -9,6 +12,9 @@ use entity_gym_rs::agent::{self, Action, Agent, AgentOps, Featurizable, Obs};
 use heron::prelude::*;
 use rand::rngs::SmallRng;
 use rand::{Rng, SeedableRng};
+
+#[cfg(feature = "python")]
+use python::Config;
 
 pub const LAUNCHER_TITLE: &str = "Bevy Shell - Template";
 
@@ -30,11 +36,10 @@ pub fn base_app(seed: u64, timestep: Option<f64>) -> App {
         .insert_resource(SmallRng::seed_from_u64(seed))
         .insert_resource(ClearColor(Color::rgb(0.0, 0.0, 0.0)))
         .insert_resource(Score(0))
-        .insert_resource(RemainingTime(30.0))
+        .insert_resource(RemainingTime(2700))
         .add_event::<GameOver>()
         .add_system_set(main_system)
-        .insert_non_send_resource(Player(agent::random()))
-        .add_startup_system(setup);
+        .insert_non_send_resource(Player(agent::random()));
     app
 }
 
@@ -53,7 +58,8 @@ pub fn app(agent_path: Option<String>) -> App {
         None => Player(agent::random()),
     })
     .add_system(keyboard_events)
-    .add_plugins(DefaultPlugins);
+    .add_plugins(DefaultPlugins)
+    .add_startup_system(setup);
     app
 }
 
@@ -64,6 +70,8 @@ pub fn run_headless(
     seed: u64,
 ) {
     use bevy::app::ScheduleRunnerSettings;
+    use bevy::asset::AssetPlugin;
+    use bevy::render::mesh::MeshPlugin;
     use std::time::Duration;
     base_app(seed, None)
         .insert_resource(ScheduleRunnerSettings::run_loop(
@@ -71,6 +79,11 @@ pub fn run_headless(
         ))
         .insert_non_send_resource(Player(Box::new(agent)))
         .add_plugins(MinimalPlugins)
+        .add_plugin(AssetPlugin::default())
+        .add_plugin(MeshPlugin)
+        .add_plugin(MaterialPlugin::<StandardMaterial>::default())
+        .add_plugin(MaterialPlugin::<ColorMaterial>::default())
+        .add_startup_system(setup)
         .run();
 }
 
@@ -95,7 +108,7 @@ fn reset(
         for entity in fighter.iter_mut() {
             cmd.entity(entity).despawn_recursive();
         }
-        remaining_time.0 = 30.0;
+        remaining_time.0 = 2700;
         spawn_player(&mut cmd, &mut meshes, &mut materials);
     }
 }
@@ -130,9 +143,9 @@ fn spawn_player(
             acceleration: 20.0,
             turn_speed: 0.07,
             bullet_speed: 1500.0,
-            bullet_lifetime: 0.5,
-            bullet_cooldown: 0.15,
-            remaining_bullet_cooldown: 0.0,
+            bullet_lifetime: 45,
+            bullet_cooldown: 13,
+            remaining_bullet_cooldown: 0,
         })
         .insert(RigidBody::Dynamic)
         .insert(PhysicMaterial {
@@ -169,7 +182,7 @@ fn spawn_bullet(
     materials: &mut ResMut<Assets<ColorMaterial>>,
     position: Vec3,
     velocity: Vec3,
-    lifetime: f32,
+    lifetime: u32,
 ) {
     let radius = 3.0;
     let circle = Circle::new(radius);
@@ -402,7 +415,7 @@ fn keyboard_events(
         }
 
         if keys.pressed(KeyCode::Space)
-            && fighter.remaining_bullet_cooldown < 0.0
+            && fighter.remaining_bullet_cooldown <= 0
         {
             spawn_bullet(
                 &mut cmd,
@@ -414,7 +427,7 @@ fn keyboard_events(
                         * fighter.bullet_speed,
                 fighter.bullet_lifetime,
             );
-            fighter.remaining_bullet_cooldown = fighter.bullet_cooldown;
+            fighter.remaining_bullet_cooldown = fighter.bullet_cooldown as i32;
         }
 
         // if keys.pressed(KeyCode::Left) {
@@ -481,28 +494,26 @@ fn create_fighter_mesh() -> Mesh {
 
 fn expire_bullets(
     mut cmd: Commands,
-    time: Res<Time>,
     mut bullets: Query<(Entity, &mut Bullet)>,
 ) {
     for (entity, mut bullet) in &mut bullets.iter_mut() {
-        bullet.remaining_lifetime -= time.delta_seconds();
-        if bullet.remaining_lifetime <= 0.0 {
+        bullet.remaining_lifetime -= 1;
+        if bullet.remaining_lifetime == 0 {
             cmd.entity(entity).despawn();
         }
     }
 }
 
 fn cooldowns(
-    time: Res<Time>,
     mut fighter: Query<&mut Fighter>,
     mut timer: ResMut<RemainingTime>,
     mut game_over: EventWriter<GameOver>,
 ) {
     for mut fighter in &mut fighter.iter_mut() {
-        fighter.remaining_bullet_cooldown -= time.delta_seconds();
+        fighter.remaining_bullet_cooldown -= 1;
     }
-    timer.0 -= time.delta_seconds();
-    if timer.0 <= 0.0 {
+    timer.0 -= 1;
+    if timer.0 == 0 {
         game_over.send(GameOver);
     }
 }
@@ -586,7 +597,7 @@ fn ai(
                         }
                     }
                     FighterAction::Shoot => {
-                        if fighter.remaining_bullet_cooldown <= 0.0 {
+                        if fighter.remaining_bullet_cooldown <= 0 {
                             spawn_bullet(
                                 &mut cmd,
                                 &mut meshes,
@@ -601,7 +612,7 @@ fn ai(
                                 fighter.bullet_lifetime,
                             );
                             fighter.remaining_bullet_cooldown =
-                                fighter.bullet_cooldown;
+                                fighter.bullet_cooldown as i32;
                         }
                     }
                 }
@@ -616,15 +627,15 @@ struct Fighter {
     max_velocity: f32,
     acceleration: f32,
     turn_speed: f32,
-    bullet_cooldown: f32,
+    bullet_cooldown: u32,
     bullet_speed: f32,
-    bullet_lifetime: f32,
-    remaining_bullet_cooldown: f32,
+    bullet_lifetime: u32,
+    remaining_bullet_cooldown: i32,
 }
 
 #[derive(Component)]
 struct Bullet {
-    remaining_lifetime: f32,
+    remaining_lifetime: u32,
 }
 
 #[derive(Component)]
@@ -644,7 +655,7 @@ struct GameOver;
 
 struct Score(u32);
 
-struct RemainingTime(f32);
+struct RemainingTime(u32);
 
 struct Player(pub Box<dyn Agent>);
 
@@ -666,7 +677,7 @@ struct FighterFeats {
     dy: f32,
     direction_x: f32,
     direction_y: f32,
-    remaining_time: f32,
+    remaining_time: u32,
 }
 
 #[derive(Action)]

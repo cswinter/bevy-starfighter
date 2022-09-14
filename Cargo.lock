@@ -217,6 +217,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "bevy-dogfight-ai"
+version = "0.1.0"
+dependencies = [
+ "bevy",
+ "entity-gym-rs",
+ "heron",
+ "image",
+ "pyo3",
+ "rand",
+ "winit",
+]
+
+[[package]]
 name = "bevy_animation"
 version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2517,19 +2530,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "my-game"
-version = "0.1.0"
-dependencies = [
- "bevy",
- "entity-gym-rs",
- "heron",
- "image",
- "pyo3",
- "rand",
- "winit",
-]
-
-[[package]]
 name = "naga"
 version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2610,8 +2610,8 @@ name = "native-launcher"
 version = "0.1.0"
 dependencies = [
  "bevy",
+ "bevy-dogfight-ai",
  "image",
- "my-game",
  "winit",
 ]
 
@@ -4135,7 +4135,7 @@ name = "wasm-launcher"
 version = "0.1.0"
 dependencies = [
  "bevy",
- "my-game",
+ "bevy-dogfight-ai",
  "stylist",
  "web-sys",
  "yew",

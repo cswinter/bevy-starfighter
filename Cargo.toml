@@ -1,5 +1,5 @@
 [package]
-name = "my-game"
+name = "bevy-dogfight-ai"
 version = "0.1.0"
 edition = "2021"
 
@@ -8,6 +8,10 @@ members = [
     "launchers/wasm",
     "launchers/native",
 ]
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+name = "bevy_dogfight_ai"
 
 [[bin]]
 name="native-launcher"

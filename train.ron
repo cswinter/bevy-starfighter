@@ -1,0 +1,12 @@
+TrainConfig(
+    version: 3,
+    env: (
+        id: "BevyDogfight",
+    ),
+    net: (
+        translation: (
+            reference_entity: "FighterFeats",
+            position_features: ["x", "y"],
+        )
+    ),
+)
