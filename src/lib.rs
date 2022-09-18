@@ -18,7 +18,20 @@ use python::Config;
 
 pub const LAUNCHER_TITLE: &str = "Bevy Shell - Template";
 
-pub fn base_app(seed: u64, timestep: Option<f64>) -> App {
+#[derive(Clone)]
+pub struct Settings {
+    frameskip: u32,
+    frame_rate: f32,
+    fixed_timestep: bool,
+}
+
+impl Settings {
+    fn timestep_secs(&self) -> f32 {
+        1.0 / self.frame_rate * self.frameskip as f32
+    }
+}
+
+pub fn base_app(seed: u64, settings: &Settings) -> App {
     let mut main_system = SystemSet::new()
         .with_system(ai)
         .with_system(check_boundary_collision)
@@ -27,9 +40,10 @@ pub fn base_app(seed: u64, timestep: Option<f64>) -> App {
         .with_system(expire_bullets)
         .with_system(cooldowns.after(ai))
         .with_system(reset.after(cooldowns));
-    if let Some(timestep) = timestep {
-        main_system =
-            main_system.with_run_criteria(FixedTimestep::step(timestep));
+    if settings.fixed_timestep {
+        main_system = main_system.with_run_criteria(FixedTimestep::step(
+            settings.timestep_secs() as f64,
+        ));
     }
     let mut app = App::new();
     app.add_plugin(PhysicsPlugin::default())
@@ -37,6 +51,7 @@ pub fn base_app(seed: u64, timestep: Option<f64>) -> App {
         .insert_resource(ClearColor(Color::rgb(0.0, 0.0, 0.0)))
         .insert_resource(Score(0))
         .insert_resource(RemainingTime(2700))
+        .insert_resource(settings.clone())
         .add_event::<GameOver>()
         .add_system_set(main_system)
         .insert_non_send_resource(Player(agent::random()));
@@ -44,7 +59,14 @@ pub fn base_app(seed: u64, timestep: Option<f64>) -> App {
 }
 
 pub fn app(agent_path: Option<String>) -> App {
-    let mut app = base_app(0, Some(1.0 / 90.0));
+    let mut app = base_app(
+        0,
+        &Settings {
+            frame_rate: 90.0,
+            frameskip: 1,
+            fixed_timestep: true,
+        },
+    );
     app.insert_resource(WindowDescriptor {
         title: LAUNCHER_TITLE.to_string(),
         width: 2000.0,
@@ -65,7 +87,7 @@ pub fn app(agent_path: Option<String>) -> App {
 
 #[cfg(feature = "python")]
 pub fn run_headless(
-    _: Config,
+    config: Config,
     agent: entity_gym_rs::agent::TrainAgent,
     seed: u64,
 ) {
@@ -75,13 +97,18 @@ pub fn run_headless(
     use bevy::sprite::Material2dPlugin;
     use heron::PhysicsSteps;
     use std::time::Duration;
-    base_app(seed, None)
+    let settings = Settings {
+        frame_rate: 90.0,
+        frameskip: config.frameskip,
+        fixed_timestep: false,
+    };
+    base_app(seed, &settings)
         .insert_resource(ScheduleRunnerSettings::run_loop(
             Duration::from_secs_f64(0.0),
         ))
         .insert_non_send_resource(Player(Box::new(agent)))
         .insert_resource(PhysicsSteps::every_frame(Duration::from_secs_f64(
-            1.0 / 90.0,
+            settings.timestep_secs() as f64,
         )))
         .add_plugins(MinimalPlugins)
         .add_plugin(AssetPlugin::default())
@@ -103,6 +130,7 @@ fn reset(
     mut fighter: Query<Entity, With<Fighter>>,
     mut remaining_time: ResMut<RemainingTime>,
     mut player: NonSendMut<Player>,
+    settings: Res<Settings>,
 ) {
     if let Some(GameOver) = game_over.iter().next() {
         player.0.game_over(&Obs::new(score.0 as f32));
@@ -116,7 +144,7 @@ fn reset(
             cmd.entity(entity).despawn_recursive();
         }
         remaining_time.0 = 2700;
-        spawn_player(&mut cmd, &mut meshes, &mut materials);
+        spawn_player(&mut cmd, &mut meshes, &mut materials, settings);
     }
 }
 
@@ -124,8 +152,9 @@ fn setup(
     mut cmd: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
+    settings: Res<Settings>,
 ) {
-    spawn_player(&mut cmd, &mut meshes, &mut materials);
+    spawn_player(&mut cmd, &mut meshes, &mut materials, settings);
     cmd.spawn_bundle(Camera2dBundle::default());
     // Spawn rectangular bounds
     let bounds = Quad::new(Vec2::new(2000.0, 1000.0));
@@ -143,6 +172,7 @@ fn spawn_player(
     cmd: &mut Commands,
     meshes: &mut ResMut<Assets<Mesh>>,
     materials: &mut ResMut<Assets<ColorMaterial>>,
+    settings: Res<Settings>,
 ) {
     cmd.spawn()
         .insert(Fighter {
@@ -151,9 +181,9 @@ fn spawn_player(
             turn_speed: 0.07,
             bullet_speed: 1500.0,
             bullet_lifetime: 45,
-            bullet_cooldown: 13,
+            bullet_cooldown: 12,
             remaining_bullet_cooldown: 0,
-            act_frequency: 13,
+            act_frequency: 12 / settings.frameskip,
             curr_action: None,
         })
         .insert(RigidBody::Dynamic)
@@ -517,12 +547,13 @@ fn cooldowns(
     mut fighter: Query<&mut Fighter>,
     mut timer: ResMut<RemainingTime>,
     mut game_over: EventWriter<GameOver>,
+    settings: Res<Settings>,
 ) {
     for mut fighter in &mut fighter.iter_mut() {
-        fighter.remaining_bullet_cooldown -= 1;
+        fighter.remaining_bullet_cooldown -= settings.frameskip as i32;
     }
-    timer.0 -= 1;
-    if timer.0 == 0 {
+    timer.0 -= settings.frameskip as i32;
+    if timer.0 <= 0 {
         game_over.send(GameOver);
     }
 }
@@ -699,7 +730,7 @@ struct GameOver;
 
 struct Score(u32);
 
-struct RemainingTime(u32);
+struct RemainingTime(i32);
 
 struct Player(pub Box<dyn Agent>);
 
@@ -721,7 +752,7 @@ struct FighterFeats {
     dy: f32,
     direction_x: f32,
     direction_y: f32,
-    remaining_time: u32,
+    remaining_time: i32,
     gun_cooldown: u32,
 }
 

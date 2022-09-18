@@ -1,3 +1,4 @@
+import json
 import hyperstate
 from enn_trainer import TrainConfig, State, init_train_state, train, EnvConfig
 from entity_gym.env import VecEnv
@@ -9,8 +10,9 @@ from bevy_dogfight_ai import create_env, Config
 def create_dogfight_vec_env(
     cfg: EnvConfig, num_envs: int, num_processes: int, first_env_index: int
 ) -> VecEnv:
+    kwargs = json.loads(cfg.kwargs)
     env = create_env(
-        Config(),
+        Config(**kwargs),
         num_envs,
         num_processes,
         first_env_index=first_env_index,

@@ -6,13 +6,16 @@ use pyo3::prelude::*;
 
 #[derive(Clone)]
 #[pyclass]
-pub struct Config;
+pub struct Config {
+    pub frameskip: u32,
+}
 
 #[pymethods]
 impl Config {
     #[new]
-    fn new() -> Self {
-        Config
+    #[args(frameskip = "1")]
+    fn new(frameskip: u32) -> Self {
+        Config { frameskip }
     }
 }
 
