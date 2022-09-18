@@ -20,6 +20,8 @@ XpV0(
                 Run("apt-get install curl build-essential --yes"),
                 Run("curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y"),
                 Env("PATH", "/root/.cargo/bin:${PATH}"),
+                Run("rustup set profile minimal"),
+                Run("rustup toolchain install 1.63.0-x86_64-unknown-linux-gnu"),
 
                 // Copy just the dependency files to avoid reinstalls unless dependencies change
                 Repo(
