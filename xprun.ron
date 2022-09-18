@@ -27,9 +27,9 @@ XpV0(
                         "pyproject.toml",
                         "poetry.lock",
                     ],
-                    target_dir: "/root/bevy-snake-ai",
+                    target_dir: "/root/bevy-dogfight-ai",
                 ),
-                Cd("/root/bevy-snake-ai"),
+                Cd("/root/bevy-dogfight-ai"),
 
                 Run("poetry install"),
                 Run("poetry run pip install torch==1.12.0+cu113 -f https://download.pytorch.org/whl/cu113/torch_stable.html"),
@@ -39,7 +39,7 @@ XpV0(
                 Repo(url: "git@github.com:cswinter/xprun.git", rev: "d8a58d8", target_dir: "/root"),
                 Run("poetry run maturin develop --features=python --release --manifest-path=/root/xprun/Cargo.toml"),
 
-                // Build bevy-snake-ai
+                // Build bevy-dogfight-ai
                 Repo(target_dir: "/root"),
                 Cd("/root/bevy-dogfight-ai"),
                 Run("poetry run maturin develop --features=python --release"),
