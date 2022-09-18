@@ -26,6 +26,7 @@ fn create_env(
     TrainEnvBuilder::default()
         .entity::<FighterFeats>()
         .entity::<AsteroidFeats>()
+        .entity::<BulletFeats>()
         .action::<FighterAction>()
         .build(
             config,

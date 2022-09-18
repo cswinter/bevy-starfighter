@@ -3,11 +3,11 @@ pub mod python;
 
 use bevy::app::AppExit;
 use bevy::prelude::shape::{Circle, Quad};
-use bevy::prelude::*;
 use bevy::render::mesh::Indices;
 use bevy::render::render_resource::PrimitiveTopology;
 use bevy::sprite::MaterialMesh2dBundle;
 use bevy::time::FixedTimestep;
+use bevy::{log, prelude::*};
 use entity_gym_rs::agent::{self, Action, Agent, AgentOps, Featurizable, Obs};
 use heron::prelude::*;
 use rand::rngs::SmallRng;
@@ -20,13 +20,13 @@ pub const LAUNCHER_TITLE: &str = "Bevy Shell - Template";
 
 pub fn base_app(seed: u64, timestep: Option<f64>) -> App {
     let mut main_system = SystemSet::new()
-        .with_system(reset)
+        .with_system(ai)
         .with_system(check_boundary_collision)
         .with_system(spawn_asteroids)
         .with_system(detect_collisions)
         .with_system(expire_bullets)
-        .with_system(cooldowns)
-        .with_system(ai);
+        .with_system(cooldowns.after(ai))
+        .with_system(reset.after(cooldowns));
     if let Some(timestep) = timestep {
         main_system =
             main_system.with_run_criteria(FixedTimestep::step(timestep));
@@ -72,17 +72,22 @@ pub fn run_headless(
     use bevy::app::ScheduleRunnerSettings;
     use bevy::asset::AssetPlugin;
     use bevy::render::mesh::MeshPlugin;
+    use bevy::sprite::Material2dPlugin;
+    use heron::PhysicsSteps;
     use std::time::Duration;
     base_app(seed, None)
         .insert_resource(ScheduleRunnerSettings::run_loop(
             Duration::from_secs_f64(0.0),
         ))
         .insert_non_send_resource(Player(Box::new(agent)))
+        .insert_resource(PhysicsSteps::every_frame(Duration::from_secs_f64(
+            1.0 / 90.0,
+        )))
         .add_plugins(MinimalPlugins)
         .add_plugin(AssetPlugin::default())
         .add_plugin(MeshPlugin)
         .add_plugin(MaterialPlugin::<StandardMaterial>::default())
-        .add_plugin(MaterialPlugin::<ColorMaterial>::default())
+        .add_plugin(Material2dPlugin::<ColorMaterial>::default())
         .add_startup_system(setup)
         .run();
 }
@@ -97,9 +102,11 @@ fn reset(
     mut score: ResMut<Score>,
     mut fighter: Query<Entity, With<Fighter>>,
     mut remaining_time: ResMut<RemainingTime>,
+    mut player: NonSendMut<Player>,
 ) {
     if let Some(GameOver) = game_over.iter().next() {
-        println!("Game Over! Score: {}", score.0);
+        player.0.game_over(&Obs::new(score.0 as f32));
+        log::info!("Game Over! Score: {}", score.0);
         score.0 = 0;
         // Despawn all entities
         for entity in query.iter_mut() {
@@ -146,6 +153,8 @@ fn spawn_player(
             bullet_lifetime: 45,
             bullet_cooldown: 13,
             remaining_bullet_cooldown: 0,
+            act_frequency: 13,
+            curr_action: None,
         })
         .insert(RigidBody::Dynamic)
         .insert(PhysicMaterial {
@@ -525,6 +534,7 @@ fn ai(
     mut fighter: Query<(&mut Fighter, &mut Transform, &mut Velocity)>,
     mut exit: EventWriter<AppExit>,
     asteroids: Query<(&Asteroid, &Transform, &Velocity), Without<Fighter>>,
+    bullets: Query<(&Bullet, &Transform, &Velocity), Without<Fighter>>,
     remaining_time: Res<RemainingTime>,
     score: Res<Score>,
     mut meshes: ResMut<Assets<Mesh>>,
@@ -533,34 +543,65 @@ fn ai(
     if let Some((mut fighter, mut transform, mut velocity)) =
         fighter.iter_mut().next()
     {
-        let pos = transform.translation;
-        let vel = velocity.linear;
-        let obs = Obs::new(score.0 as f32)
-            // TODO direction
-            .entities([FighterFeats {
-                x: pos.x,
-                y: pos.y,
-                dx: vel.x,
-                dy: vel.y,
-                direction_x: 0.0,
-                direction_y: 0.0,
-                remaining_time: remaining_time.0,
-            }])
-            .entities(asteroids.iter().map(
-                |(asteroid, transform, velocity)| {
-                    let pos = transform.translation;
-                    let vel = velocity.linear;
-                    AsteroidFeats {
-                        health: asteroid.health,
-                        radius: asteroid.radius,
+        let action = match &mut fighter.curr_action {
+            Some((action, remaining)) => {
+                *remaining -= 1;
+                let action = *action;
+                if *remaining == 0 {
+                    fighter.curr_action = None;
+                }
+                Some(action)
+            }
+            None => {
+                let pos = transform.translation;
+                let vel = velocity.linear;
+                let (direction_x, direction_y) =
+                    transform_to_direction(&transform);
+                let obs = Obs::new(score.0 as f32)
+                    .entities([FighterFeats {
                         x: pos.x,
                         y: pos.y,
                         dx: vel.x,
                         dy: vel.y,
-                    }
-                },
-            ));
-        let action = player.0.act::<FighterAction>(&obs);
+                        direction_x,
+                        direction_y,
+                        remaining_time: remaining_time.0,
+                        gun_cooldown: fighter.remaining_bullet_cooldown.max(0)
+                            as u32,
+                    }])
+                    .entities(asteroids.iter().map(
+                        |(asteroid, transform, velocity)| {
+                            let pos = transform.translation;
+                            let vel = velocity.linear;
+                            AsteroidFeats {
+                                health: asteroid.health,
+                                radius: asteroid.radius,
+                                x: pos.x,
+                                y: pos.y,
+                                dx: vel.x,
+                                dy: vel.y,
+                            }
+                        },
+                    ))
+                    .entities(bullets.iter().map(
+                        |(bullet, transform, velocity)| {
+                            let pos = transform.translation;
+                            let vel = velocity.linear;
+                            BulletFeats {
+                                x: pos.x,
+                                y: pos.y,
+                                dx: vel.x,
+                                dy: vel.y,
+                                lifetime: bullet.remaining_lifetime,
+                            }
+                        },
+                    ));
+                let action = player.0.act::<FighterAction>(&obs);
+                fighter.curr_action =
+                    action.iter().map(|a| (*a, fighter.act_frequency)).next();
+                action
+            }
+        };
         match action {
             Some(a) => {
                 let rot = transform.rotation.xyz();
@@ -631,6 +672,9 @@ struct Fighter {
     bullet_speed: f32,
     bullet_lifetime: u32,
     remaining_bullet_cooldown: i32,
+
+    act_frequency: u32,
+    curr_action: Option<(FighterAction, u32)>,
 }
 
 #[derive(Component)]
@@ -678,12 +722,32 @@ struct FighterFeats {
     direction_x: f32,
     direction_y: f32,
     remaining_time: u32,
+    gun_cooldown: u32,
 }
 
-#[derive(Action)]
+#[derive(Featurizable)]
+struct BulletFeats {
+    x: f32,
+    y: f32,
+    dx: f32,
+    dy: f32,
+    lifetime: u32,
+}
+
+#[derive(Action, Clone, Copy)]
 enum FighterAction {
     TurnLeft,
     TurnRight,
     Thrust,
     Shoot,
+}
+
+fn transform_to_direction(transform: &Transform) -> (f32, f32) {
+    let rot = transform.rotation.xyz();
+    let mut angle = transform.rotation.to_axis_angle().1;
+    if rot.z < 0.0 {
+        angle = -angle;
+    }
+    let angle2 = angle + std::f32::consts::PI / 2.0;
+    (angle2.cos(), angle2.sin())
 }
