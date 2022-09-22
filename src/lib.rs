@@ -2,27 +2,51 @@
 pub mod python;
 
 use bevy::app::AppExit;
+use bevy::app::ScheduleRunnerSettings;
+use bevy::asset::AssetPlugin;
 use bevy::prelude::shape::{Circle, Quad};
 use bevy::render::mesh::Indices;
+use bevy::render::mesh::MeshPlugin;
 use bevy::render::render_resource::PrimitiveTopology;
+use bevy::sprite::Material2dPlugin;
 use bevy::sprite::MaterialMesh2dBundle;
 use bevy::time::FixedTimestep;
 use bevy::{log, prelude::*};
 use entity_gym_rs::agent::{self, Action, Agent, AgentOps, Featurizable, Obs};
 use heron::prelude::*;
+use heron::PhysicsSteps;
 use rand::rngs::SmallRng;
 use rand::{Rng, SeedableRng};
+use std::time::Duration;
 
 #[cfg(feature = "python")]
 use python::Config;
 
 pub const LAUNCHER_TITLE: &str = "Bevy Shell - Template";
 
+#[derive(Default, Debug)]
+struct Stats {
+    bullets_fired: usize,
+    timesteps: usize,
+    bullet_hits: usize,
+    destroyed_asteroids: usize,
+}
+
 #[derive(Clone)]
 pub struct Settings {
-    frameskip: u32,
-    frame_rate: f32,
-    fixed_timestep: bool,
+    pub frameskip: u32,
+    pub frame_rate: f32,
+    pub fixed_timestep: bool,
+    pub random_ai: bool,
+    pub agent_path: Option<String>,
+    pub headless: bool,
+    pub enable_logging: bool,
+    pub action_interval: u32,
+}
+
+struct ActCooldown {
+    current: u32,
+    interval: u32,
 }
 
 impl Settings {
@@ -31,7 +55,11 @@ impl Settings {
     }
 }
 
-pub fn base_app(seed: u64, settings: &Settings) -> App {
+pub fn base_app(
+    seed: u64,
+    settings: &Settings,
+    agent: Option<Box<dyn Agent>>,
+) -> App {
     let mut main_system = SystemSet::new()
         .with_system(ai)
         .with_system(check_boundary_collision)
@@ -39,7 +67,8 @@ pub fn base_app(seed: u64, settings: &Settings) -> App {
         .with_system(detect_collisions)
         .with_system(expire_bullets)
         .with_system(cooldowns.after(ai))
-        .with_system(reset.after(cooldowns));
+        .with_system(fighter_actions.after(cooldowns))
+        .with_system(reset.after(fighter_actions));
     if settings.fixed_timestep {
         main_system = main_system.with_run_criteria(FixedTimestep::step(
             settings.timestep_secs() as f64,
@@ -49,64 +78,31 @@ pub fn base_app(seed: u64, settings: &Settings) -> App {
     app.add_plugin(PhysicsPlugin::default())
         .insert_resource(SmallRng::seed_from_u64(seed))
         .insert_resource(ClearColor(Color::rgb(0.0, 0.0, 0.0)))
-        .insert_resource(Score(0))
         .insert_resource(RemainingTime(2700))
+        .insert_resource(Stats::default())
         .insert_resource(settings.clone())
+        .insert_resource(ActCooldown {
+            current: 0,
+            interval: settings.action_interval,
+        })
+        .insert_non_send_resource(Player(agent))
         .add_event::<GameOver>()
-        .add_system_set(main_system)
-        .insert_non_send_resource(Player(agent::random()));
+        .add_event::<FighterAction>()
+        .add_system_set(main_system);
     app
 }
 
-pub fn app(agent_path: Option<String>) -> App {
-    let mut app = base_app(
-        0,
-        &Settings {
-            frame_rate: 90.0,
-            frameskip: 1,
-            fixed_timestep: true,
-        },
-    );
-    app.insert_resource(WindowDescriptor {
-        title: LAUNCHER_TITLE.to_string(),
-        width: 2000.0,
-        height: 1000.0,
-        canvas: Some("#bevy".to_string()),
-        fit_canvas_to_parent: true,
-        ..Default::default()
-    })
-    .insert_non_send_resource(match agent_path {
-        Some(path) => Player(agent::load(path)),
-        None => Player(agent::random()),
-    })
-    .add_system(keyboard_events)
-    .add_plugins(DefaultPlugins)
-    .add_startup_system(setup);
-    app
-}
-
-#[cfg(feature = "python")]
-pub fn run_headless(
-    config: Config,
-    agent: entity_gym_rs::agent::TrainAgent,
-    seed: u64,
-) {
-    use bevy::app::ScheduleRunnerSettings;
-    use bevy::asset::AssetPlugin;
-    use bevy::render::mesh::MeshPlugin;
-    use bevy::sprite::Material2dPlugin;
-    use heron::PhysicsSteps;
-    use std::time::Duration;
-    let settings = Settings {
-        frame_rate: 90.0,
-        frameskip: config.frameskip,
-        fixed_timestep: false,
+pub fn app(settings: Settings, agent: Option<Box<dyn Agent>>) -> App {
+    let agent: Option<Box<dyn Agent>> = match &settings.agent_path {
+        Some(path) => Some(agent::load(path)),
+        None if settings.random_ai => Some(agent::random()),
+        None => agent,
     };
-    base_app(seed, &settings)
-        .insert_resource(ScheduleRunnerSettings::run_loop(
+    let mut app = base_app(0, &settings, agent);
+    if settings.headless {
+        app.insert_resource(ScheduleRunnerSettings::run_loop(
             Duration::from_secs_f64(0.0),
         ))
-        .insert_non_send_resource(Player(Box::new(agent)))
         .insert_resource(PhysicsSteps::every_frame(Duration::from_secs_f64(
             settings.timestep_secs() as f64,
         )))
@@ -115,8 +111,42 @@ pub fn run_headless(
         .add_plugin(MeshPlugin)
         .add_plugin(MaterialPlugin::<StandardMaterial>::default())
         .add_plugin(Material2dPlugin::<ColorMaterial>::default())
-        .add_startup_system(setup)
-        .run();
+        .add_startup_system(setup);
+        if settings.enable_logging {
+            app.add_plugin(bevy::log::LogPlugin::default());
+        }
+    } else {
+        app.insert_resource(WindowDescriptor {
+            title: LAUNCHER_TITLE.to_string(),
+            width: 2000.0,
+            height: 1000.0,
+            canvas: Some("#bevy".to_string()),
+            fit_canvas_to_parent: true,
+            ..Default::default()
+        })
+        .insert_resource(PhysicsSteps::every_frame(Duration::from_secs_f64(
+            settings.timestep_secs() as f64,
+        )))
+        .add_system(keyboard_events)
+        .add_plugins(DefaultPlugins)
+        .add_startup_system(setup);
+    }
+    app
+}
+
+#[cfg(feature = "python")]
+pub fn run_training(
+    config: Config,
+    agent: entity_gym_rs::agent::TrainAgent,
+    seed: u64,
+) {
+    let settings = Settings {
+        frameskip: config.frameskip,
+        act_interval: config.act_interval,
+        headless: true,
+        ..Settings::default()
+    };
+    run_headless(settings, Box::new(agent), seed, false);
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -126,16 +156,26 @@ fn reset(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
     mut query: Query<Entity, With<Asteroid>>,
-    mut score: ResMut<Score>,
+    mut stats: ResMut<Stats>,
     mut fighter: Query<Entity, With<Fighter>>,
     mut remaining_time: ResMut<RemainingTime>,
     mut player: NonSendMut<Player>,
-    settings: Res<Settings>,
 ) {
     if let Some(GameOver) = game_over.iter().next() {
-        player.0.game_over(&Obs::new(score.0 as f32));
-        log::info!("Game Over! Score: {}", score.0);
-        score.0 = 0;
+        if let Some(p) = player.0.as_mut() {
+            p.game_over(
+                &Obs::new(stats.destroyed_asteroids as f32)
+                    .metric("bullets_fired", stats.bullets_fired as f32)
+                    .metric("timesteps", stats.timesteps as f32)
+                    .metric("bullet_hits", stats.bullet_hits as f32)
+                    .metric(
+                        "destroyed_asteroids",
+                        stats.destroyed_asteroids as f32,
+                    ),
+            );
+        }
+        log::info!("Game Over! Stats: {:?}", stats);
+        *stats = Stats::default();
         // Despawn all entities
         for entity in query.iter_mut() {
             cmd.entity(entity).despawn_recursive();
@@ -144,7 +184,7 @@ fn reset(
             cmd.entity(entity).despawn_recursive();
         }
         remaining_time.0 = 2700;
-        spawn_player(&mut cmd, &mut meshes, &mut materials, settings);
+        spawn_player(&mut cmd, &mut meshes, &mut materials);
     }
 }
 
@@ -152,9 +192,8 @@ fn setup(
     mut cmd: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
-    settings: Res<Settings>,
 ) {
-    spawn_player(&mut cmd, &mut meshes, &mut materials, settings);
+    spawn_player(&mut cmd, &mut meshes, &mut materials);
     cmd.spawn_bundle(Camera2dBundle::default());
     // Spawn rectangular bounds
     let bounds = Quad::new(Vec2::new(2000.0, 1000.0));
@@ -172,19 +211,17 @@ fn spawn_player(
     cmd: &mut Commands,
     meshes: &mut ResMut<Assets<Mesh>>,
     materials: &mut ResMut<Assets<ColorMaterial>>,
-    settings: Res<Settings>,
 ) {
     cmd.spawn()
         .insert(Fighter {
             max_velocity: 500.0,
-            acceleration: 20.0,
-            turn_speed: 0.07,
+            acceleration: 2000.0,
+            turn_speed: 5.0,
             bullet_speed: 1500.0,
             bullet_lifetime: 45,
             bullet_cooldown: 12,
+            bullet_kickback: 50.0,
             remaining_bullet_cooldown: 0,
-            act_frequency: 12 / settings.frameskip,
-            curr_action: None,
         })
         .insert(RigidBody::Dynamic)
         .insert(PhysicMaterial {
@@ -200,8 +237,8 @@ fn spawn_player(
             ],
             border_radius: None,
         })
-        //.insert(Velocity::from_linear(Vec3::new(0.0, 50.0, 0.0)))
         .insert(Velocity::from_linear(Vec3::new(0.0, 0.0, 0.0)))
+        .insert(Acceleration::from_linear(Vec3::new(0.0, 0.0, 0.0)))
         .insert(RotationConstraints::lock())
         .insert(CollisionType::Fighter)
         .insert_bundle(MaterialMesh2dBundle {
@@ -265,7 +302,7 @@ fn detect_collisions(
     mut game_over: EventWriter<GameOver>,
     mut asteroids: Query<(&mut Asteroid, &mut Handle<ColorMaterial>)>,
     mut materials: ResMut<Assets<ColorMaterial>>,
-    mut score: ResMut<Score>,
+    mut stats: ResMut<Stats>,
 ) {
     for event in events.iter() {
         if let CollisionEvent::Started(data1, data2) = event {
@@ -286,9 +323,10 @@ fn detect_collisions(
                     let (mut asteroid, mut material) =
                         asteroids.get_mut(data2.rigid_body_entity()).unwrap();
                     asteroid.health -= 1.0;
+                    stats.bullet_hits += 1;
                     if asteroid.health <= 0.0 {
                         cmd.entity(data2.rigid_body_entity()).despawn();
-                        score.0 += 1;
+                        stats.destroyed_asteroids += 1;
                     } else {
                         *material =
                             materials.add(ColorMaterial::from(Color::rgb(
@@ -303,9 +341,10 @@ fn detect_collisions(
                     let (mut asteroid, mut material) =
                         asteroids.get_mut(data1.rigid_body_entity()).unwrap();
                     asteroid.health -= 1.0;
+                    stats.bullet_hits += 1;
                     if asteroid.health <= 0.0 {
                         cmd.entity(data1.rigid_body_entity()).despawn();
-                        score.0 += 1;
+                        stats.destroyed_asteroids += 1;
                     } else {
                         *material =
                             materials.add(ColorMaterial::from(Color::rgb(
@@ -336,6 +375,12 @@ fn check_boundary_collision(
             velocity.linear.y = -fighter.max_velocity;
         } else if y < -500.0 {
             velocity.linear.y = fighter.max_velocity;
+        }
+        // Clamp velocity
+        let speed = velocity.linear.length();
+        if speed > fighter.max_velocity {
+            velocity.linear =
+                velocity.linear.normalize() * fighter.max_velocity;
         }
     }
 }
@@ -404,113 +449,20 @@ fn spawn_asteroids(
 }
 
 fn keyboard_events(
-    mut cmd: Commands,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<ColorMaterial>>,
+    mut action_events: EventWriter<FighterAction>,
     keys: Res<Input<KeyCode>>,
     // mut key_evr: EventReader<KeyboardInput>,
-    mut fighter: Query<(&mut Fighter, &mut Transform, &mut Velocity)>,
 ) {
-    //     let (mut knife_transform, _) = knife.get_mut(*knife_id).unwrap();
-    // *knife_transform = Transform {
-    //     translation: Vec3::new(pos.x * 23.0, pos.y * 23.0, 0.0),
-    //     rotation: Quat::from_axis_angle(
-    //         Vec3::new(0.0, 0.0, 1.0),
-    //         pos.y.atan2(pos.x) - f32::consts::PI / 2.0,
-    //     ),
-    //     //Quat::from_xyzw(pos.x, pos.y, 0.0, 0.0),
-    //     ..default()
-    // };
-    for (mut fighter, mut transform, mut velocity) in &mut fighter {
-        let rot = transform.rotation.xyz();
-        let mut angle = transform.rotation.to_axis_angle().1;
-        if rot.z < 0.0 {
-            angle = -angle;
-        }
-        let angle2 = angle + std::f32::consts::PI / 2.0;
-
-        if keys.pressed(KeyCode::Up) || keys.pressed(KeyCode::W) {
-            let thrust = Vec3::new(angle2.cos(), angle2.sin(), 0.0)
-                * fighter.acceleration;
-            velocity.linear += thrust;
-            if velocity.linear.length() > fighter.max_velocity {
-                velocity.linear =
-                    velocity.linear.normalize() * fighter.max_velocity;
-            }
-        }
-        let rotation =
-            if keys.pressed(KeyCode::Left) || keys.pressed(KeyCode::A) {
-                Some(fighter.turn_speed)
-            } else if keys.pressed(KeyCode::Right) || keys.pressed(KeyCode::D) {
-                Some(-fighter.turn_speed)
-            } else {
-                None
-            };
-        if let Some(dr) = rotation {
-            *transform = Transform {
-                rotation: Quat::from_rotation_z(angle + dr),
-                ..*transform
-            };
-        }
-
-        if keys.pressed(KeyCode::Space)
-            && fighter.remaining_bullet_cooldown <= 0
-        {
-            spawn_bullet(
-                &mut cmd,
-                &mut meshes,
-                &mut materials,
-                transform.translation,
-                velocity.linear
-                    + Vec3::new(angle2.cos(), angle2.sin(), 0.0)
-                        * fighter.bullet_speed,
-                fighter.bullet_lifetime,
-            );
-            fighter.remaining_bullet_cooldown = fighter.bullet_cooldown as i32;
-        }
-
-        // if keys.pressed(KeyCode::Left) {
-        //     starship. += STARSHIP_ROTATION_SPEED;
-        // } else if keys.pressed(KeyCode::Right) {
-        //     starship.rotation_angle -= STARSHIP_ROTATION_SPEED;
-        // }
-
-        // if keys.pressed(KeyCode::Up) {
-        //     velocity.0 += starship.direction() * STARSHIP_ACCELERATION;
-
-        //     if velocity.0.length() > STARSHIP_MAX_VELOCITY {
-        //         velocity.0 =
-        //             velocity.0.normalize_or_zero() * STARSHIP_MAX_VELOCITY;
-        //     }
-        // }
-
-        // for evt in key_evr.iter() {
-        //     if let (ButtonState::Pressed, Some(KeyCode::Space)) =
-        //         (evt.state, evt.key_code)
-        //     {
-        //         commands
-        //             .spawn()
-        //             .insert(Bullet {
-        //                 start: starship_position.0.clone(),
-        //             })
-        //             .insert(Position(starship_position.0.clone()))
-        //             .insert(Velocity(
-        //                 starship.direction().normalize() * BULLET_VELOCITY,
-        //             ))
-        //             .insert_bundle(MaterialMesh2dBundle {
-        //                 mesh: meshes
-        //                     .add(Mesh::from(shape::Circle::default()))
-        //                     .into(),
-        //                 transform: Transform::default()
-        //                     .with_scale(Vec3::splat(5.0))
-        //                     .with_translation(Vec3::splat(0.0)),
-        //                 material: materials.add(ColorMaterial::from(
-        //                     Color::rgba(1.0, 1.0, 1.0, 1.0),
-        //                 )),
-        //                 ..default()
-        //             });
-        //     }
-        // }
+    if keys.pressed(KeyCode::Up) || keys.pressed(KeyCode::W) {
+        action_events.send(FighterAction::Thrust);
+    }
+    if keys.pressed(KeyCode::Left) || keys.pressed(KeyCode::A) {
+        action_events.send(FighterAction::TurnLeft);
+    } else if keys.pressed(KeyCode::Right) || keys.pressed(KeyCode::D) {
+        action_events.send(FighterAction::TurnRight);
+    };
+    if keys.pressed(KeyCode::Space) {
+        action_events.send(FighterAction::Shoot);
     }
 }
 
@@ -547,8 +499,10 @@ fn cooldowns(
     mut fighter: Query<&mut Fighter>,
     mut timer: ResMut<RemainingTime>,
     mut game_over: EventWriter<GameOver>,
+    mut stats: ResMut<Stats>,
     settings: Res<Settings>,
 ) {
+    stats.timesteps += settings.frameskip as usize;
     for mut fighter in &mut fighter.iter_mut() {
         fighter.remaining_bullet_cooldown -= settings.frameskip as i32;
     }
@@ -560,136 +514,136 @@ fn cooldowns(
 
 #[allow(clippy::too_many_arguments)]
 fn ai(
-    mut cmd: Commands,
+    mut action_events: EventWriter<FighterAction>,
     mut player: NonSendMut<Player>,
-    mut fighter: Query<(&mut Fighter, &mut Transform, &mut Velocity)>,
+    mut fighter: Query<(&mut Fighter, &Transform, &Velocity)>,
     mut exit: EventWriter<AppExit>,
+    mut act_cooldown: ResMut<ActCooldown>,
     asteroids: Query<(&Asteroid, &Transform, &Velocity), Without<Fighter>>,
     bullets: Query<(&Bullet, &Transform, &Velocity), Without<Fighter>>,
     remaining_time: Res<RemainingTime>,
-    score: Res<Score>,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<ColorMaterial>>,
+    stats: Res<Stats>,
+    settings: Res<Settings>,
 ) {
-    if let Some((mut fighter, mut transform, mut velocity)) =
-        fighter.iter_mut().next()
+    if act_cooldown.current > 0 {
+        act_cooldown.current -= settings.frameskip;
+        return;
+    }
+    act_cooldown.current = act_cooldown.interval - 1;
+    if let (Some((fighter, transform, velocity)), Some(player)) =
+        (fighter.iter_mut().next(), &mut player.0)
     {
-        let action = match &mut fighter.curr_action {
-            Some((action, remaining)) => {
-                *remaining -= 1;
-                let action = *action;
-                if *remaining == 0 {
-                    fighter.curr_action = None;
-                }
-                Some(action)
-            }
-            None => {
-                let pos = transform.translation;
-                let vel = velocity.linear;
-                let (direction_x, direction_y) =
-                    transform_to_direction(&transform);
-                let obs = Obs::new(score.0 as f32)
-                    .entities([FighterFeats {
+        let pos = transform.translation;
+        let vel = velocity.linear;
+        let (direction_x, direction_y) = transform_to_direction(transform);
+        let obs = Obs::new(stats.destroyed_asteroids as f32)
+            .entities([FighterFeats {
+                x: pos.x,
+                y: pos.y,
+                dx: vel.x,
+                dy: vel.y,
+                direction_x,
+                direction_y,
+                remaining_time: remaining_time.0,
+                gun_cooldown: fighter.remaining_bullet_cooldown.max(0) as u32,
+            }])
+            .entities(asteroids.iter().map(
+                |(asteroid, transform, velocity)| {
+                    let pos = transform.translation;
+                    let vel = velocity.linear;
+                    AsteroidFeats {
+                        health: asteroid.health,
+                        radius: asteroid.radius,
                         x: pos.x,
                         y: pos.y,
                         dx: vel.x,
                         dy: vel.y,
-                        direction_x,
-                        direction_y,
-                        remaining_time: remaining_time.0,
-                        gun_cooldown: fighter.remaining_bullet_cooldown.max(0)
-                            as u32,
-                    }])
-                    .entities(asteroids.iter().map(
-                        |(asteroid, transform, velocity)| {
-                            let pos = transform.translation;
-                            let vel = velocity.linear;
-                            AsteroidFeats {
-                                health: asteroid.health,
-                                radius: asteroid.radius,
-                                x: pos.x,
-                                y: pos.y,
-                                dx: vel.x,
-                                dy: vel.y,
-                            }
-                        },
-                    ))
-                    .entities(bullets.iter().map(
-                        |(bullet, transform, velocity)| {
-                            let pos = transform.translation;
-                            let vel = velocity.linear;
-                            BulletFeats {
-                                x: pos.x,
-                                y: pos.y,
-                                dx: vel.x,
-                                dy: vel.y,
-                                lifetime: bullet.remaining_lifetime,
-                            }
-                        },
-                    ));
-                let action = player.0.act::<FighterAction>(&obs);
-                fighter.curr_action =
-                    action.iter().map(|a| (*a, fighter.act_frequency)).next();
-                action
-            }
-        };
+                    }
+                },
+            ))
+            .entities(bullets.iter().map(|(bullet, transform, velocity)| {
+                let pos = transform.translation;
+                let vel = velocity.linear;
+                BulletFeats {
+                    x: pos.x,
+                    y: pos.y,
+                    dx: vel.x,
+                    dy: vel.y,
+                    lifetime: bullet.remaining_lifetime,
+                }
+            }));
+        let action = player.act::<FighterAction>(&obs);
         match action {
-            Some(a) => {
-                let rot = transform.rotation.xyz();
-                let mut angle = transform.rotation.to_axis_angle().1;
-                if rot.z < 0.0 {
-                    angle = -angle;
-                }
-                let angle2 = angle + std::f32::consts::PI / 2.0;
+            Some(action) => action_events.send(action),
+            None => exit.send(AppExit),
+        }
+    }
+}
 
-                match a {
-                    FighterAction::TurnLeft => {
-                        *transform = Transform {
-                            rotation: Quat::from_rotation_z(
-                                angle + fighter.turn_speed,
-                            ),
-                            ..*transform
-                        };
-                    }
-                    FighterAction::TurnRight => {
-                        *transform = Transform {
-                            rotation: Quat::from_rotation_z(
-                                angle - fighter.turn_speed,
-                            ),
-                            ..*transform
-                        };
-                    }
-                    FighterAction::Thrust => {
-                        let thrust = Vec3::new(angle2.cos(), angle2.sin(), 0.0)
-                            * fighter.acceleration;
-                        velocity.linear += thrust;
-                        if velocity.linear.length() > fighter.max_velocity {
-                            velocity.linear = velocity.linear.normalize()
-                                * fighter.max_velocity;
-                        }
-                    }
-                    FighterAction::Shoot => {
-                        if fighter.remaining_bullet_cooldown <= 0 {
-                            spawn_bullet(
-                                &mut cmd,
-                                &mut meshes,
-                                &mut materials,
-                                transform.translation,
-                                velocity.linear
-                                    + Vec3::new(
-                                        angle2.cos(),
-                                        angle2.sin(),
-                                        0.0,
-                                    ) * fighter.bullet_speed,
-                                fighter.bullet_lifetime,
-                            );
-                            fighter.remaining_bullet_cooldown =
-                                fighter.bullet_cooldown as i32;
-                        }
+fn fighter_actions(
+    mut action_events: EventReader<FighterAction>,
+    mut cmd: Commands,
+    mut fighter: Query<(
+        &mut Fighter,
+        &Transform,
+        &mut Velocity,
+        &mut Acceleration,
+    )>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<ColorMaterial>>,
+    mut stats: ResMut<Stats>,
+) {
+    if let Some((mut fighter, transform, mut velocity, mut acceleration)) =
+        fighter.iter_mut().next()
+    {
+        // Reset rotation and acceleration
+        velocity.angular = AxisAngle::new(Vec3::Z, 0.0);
+        acceleration.linear = Vec3::ZERO;
+
+        for action in action_events.iter() {
+            let rot = transform.rotation.xyz();
+            let mut angle = transform.rotation.to_axis_angle().1;
+            if rot.z < 0.0 {
+                angle = -angle;
+            }
+            let angle2 = angle + std::f32::consts::PI / 2.0;
+
+            match action {
+                FighterAction::TurnLeft => {
+                    velocity.angular =
+                        AxisAngle::new(Vec3::Z, fighter.turn_speed);
+                }
+                FighterAction::TurnRight => {
+                    velocity.angular =
+                        AxisAngle::new(Vec3::Z, -fighter.turn_speed);
+                }
+                FighterAction::Thrust => {
+                    let thrust = Vec3::new(angle2.cos(), angle2.sin(), 0.0)
+                        * fighter.acceleration;
+                    acceleration.linear = thrust;
+                }
+                FighterAction::Shoot => {
+                    if fighter.remaining_bullet_cooldown <= 0 {
+                        stats.bullets_fired += 1;
+                        spawn_bullet(
+                            &mut cmd,
+                            &mut meshes,
+                            &mut materials,
+                            transform.translation,
+                            velocity.linear
+                                + Vec3::new(angle2.cos(), angle2.sin(), 0.0)
+                                    * fighter.bullet_speed,
+                            fighter.bullet_lifetime,
+                        );
+                        fighter.remaining_bullet_cooldown =
+                            fighter.bullet_cooldown as i32;
+                        let kickback =
+                            -Vec3::new(angle2.cos(), angle2.sin(), 0.0)
+                                * fighter.bullet_kickback;
+                        velocity.linear += kickback;
                     }
                 }
             }
-            None => exit.send(AppExit),
         }
     }
 }
@@ -702,10 +656,8 @@ struct Fighter {
     bullet_cooldown: u32,
     bullet_speed: f32,
     bullet_lifetime: u32,
+    bullet_kickback: f32,
     remaining_bullet_cooldown: i32,
-
-    act_frequency: u32,
-    curr_action: Option<(FighterAction, u32)>,
 }
 
 #[derive(Component)]
@@ -728,11 +680,9 @@ enum CollisionType {
 
 struct GameOver;
 
-struct Score(u32);
-
 struct RemainingTime(i32);
 
-struct Player(pub Box<dyn Agent>);
+struct Player(pub Option<Box<dyn Agent>>);
 
 #[derive(Featurizable)]
 struct AsteroidFeats {
@@ -765,7 +715,7 @@ struct BulletFeats {
     lifetime: u32,
 }
 
-#[derive(Action, Clone, Copy)]
+#[derive(Action, Clone, Copy, Debug)]
 enum FighterAction {
     TurnLeft,
     TurnRight,
@@ -781,4 +731,19 @@ fn transform_to_direction(transform: &Transform) -> (f32, f32) {
     }
     let angle2 = angle + std::f32::consts::PI / 2.0;
     (angle2.cos(), angle2.sin())
+}
+
+impl Default for Settings {
+    fn default() -> Self {
+        Settings {
+            frame_rate: 90.0,
+            frameskip: 1,
+            fixed_timestep: false,
+            random_ai: false,
+            agent_path: None,
+            headless: false,
+            enable_logging: false,
+            action_interval: 1,
+        }
+    }
 }

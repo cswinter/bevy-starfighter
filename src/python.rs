@@ -8,6 +8,7 @@ use pyo3::prelude::*;
 #[pyclass]
 pub struct Config {
     pub frameskip: u32,
+    pub act_interval: u32,
 }
 
 #[pymethods]

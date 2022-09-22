@@ -54,7 +54,8 @@ fn main() {
     // Mount the DOM
     yew::start_app::<Root>();
     // Start the Bevy App
-    let mut app = bevy_dogfight_ai::app(None);
+    let mut app =
+        bevy_dogfight_ai::app(bevy_dogfight_ai::Settings::default(), None);
     info!("Starting launcher: WASM");
     app.run();
 }
