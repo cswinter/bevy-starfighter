@@ -44,11 +44,6 @@ pub struct Settings {
     pub action_interval: u32,
 }
 
-struct ActCooldown {
-    current: u32,
-    interval: u32,
-}
-
 impl Settings {
     fn timestep_secs(&self) -> f32 {
         1.0 / self.frame_rate * self.frameskip as f32
@@ -66,7 +61,7 @@ pub fn base_app(
         .with_system(spawn_asteroids)
         .with_system(detect_collisions)
         .with_system(expire_bullets)
-        .with_system(cooldowns.after(ai))
+        .with_system(cooldowns.after(ai).after(keyboard_events))
         .with_system(fighter_actions.after(cooldowns))
         .with_system(reset.after(fighter_actions));
     if settings.fixed_timestep {
@@ -81,10 +76,6 @@ pub fn base_app(
         .insert_resource(RemainingTime(2700))
         .insert_resource(Stats::default())
         .insert_resource(settings.clone())
-        .insert_resource(ActCooldown {
-            current: 0,
-            interval: settings.action_interval,
-        })
         .insert_non_send_resource(Player(agent))
         .add_event::<GameOver>()
         .add_event::<FighterAction>()
@@ -450,9 +441,14 @@ fn spawn_asteroids(
 
 fn keyboard_events(
     mut action_events: EventWriter<FighterAction>,
+    remaining_time: Res<RemainingTime>,
+    settings: Res<Settings>,
     keys: Res<Input<KeyCode>>,
     // mut key_evr: EventReader<KeyboardInput>,
 ) {
+    if remaining_time.0 as u32 % settings.action_interval != 0 {
+        return;
+    }
     if keys.pressed(KeyCode::Up) || keys.pressed(KeyCode::W) {
         action_events.send(FighterAction::Thrust);
     }
@@ -518,18 +514,15 @@ fn ai(
     mut player: NonSendMut<Player>,
     mut fighter: Query<(&mut Fighter, &Transform, &Velocity)>,
     mut exit: EventWriter<AppExit>,
-    mut act_cooldown: ResMut<ActCooldown>,
     asteroids: Query<(&Asteroid, &Transform, &Velocity), Without<Fighter>>,
     bullets: Query<(&Bullet, &Transform, &Velocity), Without<Fighter>>,
     remaining_time: Res<RemainingTime>,
     stats: Res<Stats>,
     settings: Res<Settings>,
 ) {
-    if act_cooldown.current > 0 {
-        act_cooldown.current -= settings.frameskip;
+    if remaining_time.0 as u32 % settings.action_interval != 0 {
         return;
     }
-    act_cooldown.current = act_cooldown.interval - 1;
     if let (Some((fighter, transform, velocity)), Some(player)) =
         (fighter.iter_mut().next(), &mut player.0)
     {
@@ -580,6 +573,7 @@ fn ai(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn fighter_actions(
     mut action_events: EventReader<FighterAction>,
     mut cmd: Commands,
@@ -592,7 +586,12 @@ fn fighter_actions(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
     mut stats: ResMut<Stats>,
+    remaining_time: Res<RemainingTime>,
+    settings: Res<Settings>,
 ) {
+    if (remaining_time.0 as u32 + 1) % settings.action_interval != 0 {
+        return;
+    }
     if let Some((mut fighter, transform, mut velocity, mut acceleration)) =
         fighter.iter_mut().next()
     {
