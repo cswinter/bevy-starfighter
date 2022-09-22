@@ -142,11 +142,11 @@ pub fn run_training(
 ) {
     let settings = Settings {
         frameskip: config.frameskip,
-        act_interval: config.act_interval,
+        action_interval: config.act_interval,
         headless: true,
         ..Settings::default()
     };
-    run_headless(settings, Box::new(agent), seed, false);
+    app(settings, Some(Box::new(agent))).run();
 }
 
 #[allow(clippy::too_many_arguments)]
