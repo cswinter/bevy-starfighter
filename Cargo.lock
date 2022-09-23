@@ -1498,9 +1498,9 @@ dependencies = [
 
 [[package]]
 name = "entity-gym-rs"
-version = "0.4.3"
+version = "0.4.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "85df3e80970955d1e8badd61e624bd161a8b1089fef95f1fc3e5683f4dfd7877"
+checksum = "3bcf8e0b467d0410ea3258f966b2086881984494818ae127d26deedc4c294adc"
 dependencies = [
  "anyhow",
  "arrayvec",
@@ -3464,9 +3464,9 @@ dependencies = [
 
 [[package]]
 name = "rogue-net"
-version = "0.2.4"
+version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b14c519be4cec86aa7f1b48868bb902a74fa4f31b9835bb2c1d778682ec08543"
+checksum = "d8ae5feb3f89e7b18e06f04f86078065483df9b6fd35d2af5c99e17a1fa41c5c"
 dependencies = [
  "clap",
  "env_logger 0.9.0",
