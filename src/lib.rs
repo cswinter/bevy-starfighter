@@ -61,9 +61,9 @@ pub fn base_app(
         .with_system(spawn_asteroids)
         .with_system(detect_collisions)
         .with_system(expire_bullets)
-        .with_system(cooldowns.after(ai).after(keyboard_events))
-        .with_system(fighter_actions.after(cooldowns))
-        .with_system(reset.after(fighter_actions));
+        .with_system(fighter_actions.after(ai).after(keyboard_events))
+        .with_system(cooldowns.after(fighter_actions))
+        .with_system(reset.after(cooldowns));
     if settings.fixed_timestep {
         main_system = main_system.with_run_criteria(FixedTimestep::step(
             settings.timestep_secs() as f64,
@@ -589,7 +589,7 @@ fn fighter_actions(
     remaining_time: Res<RemainingTime>,
     settings: Res<Settings>,
 ) {
-    if (remaining_time.0 as u32 + 1) % settings.action_interval != 0 {
+    if remaining_time.0 as u32 % settings.action_interval != 0 {
         return;
     }
     if let Some((mut fighter, transform, mut velocity, mut acceleration)) =
