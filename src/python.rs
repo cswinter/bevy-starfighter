@@ -28,10 +28,10 @@ fn create_env(
     first_env_index: u64,
 ) -> PyVecEnv {
     TrainEnvBuilder::default()
-        .entity::<FighterFeats>()
-        .entity::<AsteroidFeats>()
-        .entity::<BulletFeats>()
-        .action::<FighterAction>()
+        .entity::<entity::Fighter>()
+        .entity::<entity::Asteroid>()
+        .entity::<entity::Bullet>()
+        .action::<act::FighterAction>()
         .build(
             config,
             super::run_training,

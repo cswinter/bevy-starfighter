@@ -5,7 +5,7 @@ TrainConfig(
     ),
     net: (
         translation: (
-            reference_entity: "FighterFeats",
+            reference_entity: "Fighter",
             position_features: ["x", "y"],
             rotation_vec_features: ["direction_x", "direction_y"],
         )
