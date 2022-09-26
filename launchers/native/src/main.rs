@@ -45,6 +45,7 @@ fn set_window_icon(windows: NonSend<WinitWindows>) {
 fn main() {
     let args = Args::parse();
     let settings = Settings {
+        seed: 0,
         frame_rate: 90.0,
         frameskip: args.frameskip,
         fixed_timestep: args.fixed_timestep,

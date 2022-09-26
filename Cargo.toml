@@ -17,12 +17,17 @@ name = "bevy_dogfight_ai"
 name="native-launcher"
 path="launchers/native/src/main.rs"
 
+[[bin]]
+name="benchmark"
+path="launchers/native/src/benchmark.rs"
+
 # Optimizations for WASM
 [profile.release]
 panic = 'abort'
 codegen-units = 1
 opt-level = 'z'
 lto = true
+debug = true
 
 [dependencies]
 bevy = "0.8.1"
@@ -30,10 +35,11 @@ image = "0.24.3"
 winit = "0.26.1"
 heron = { version = "4", features = ["2d"] }
 rand = { version = "0.8.5", features = ["small_rng"] }
-entity-gym-rs = "0.4.4"
+entity-gym-rs = "0.5.0"
 # entity-gym-rs = { path = "../entity-gym-rs" }
 pyo3 = { version = "0.15", features = ["extension-module"], optional = true }
 clap = { version = "3.1.7", features = ["derive"] }
+ragged-buffer = "0.3.8"
 
 [features]
-python = ["pyo3", "entity-gym-rs/python"]#, "ragged-buffer/python"]
+python = ["pyo3", "entity-gym-rs/python", "ragged-buffer/python"]

@@ -11,4 +11,11 @@ image = "0.24.3"
 winit = "0.26.1"
 clap = { version = "3.1.7", features = ["derive"] }
 # entity-gym-rs = { path = "../../../entity-gym-rs" }
-entity-gym-rs = "0.4.3"
+entity-gym-rs = "0.5.0"
+ragged-buffer = "0.3.8"
+
+[features]
+python = ["entity-gym-rs/python", "ragged-buffer/python", "bevy-dogfight-ai/python"]
+
+[profile.release]
+debug = true

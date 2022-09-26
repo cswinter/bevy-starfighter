@@ -12,7 +12,7 @@ use bevy::sprite::Material2dPlugin;
 use bevy::sprite::MaterialMesh2dBundle;
 use bevy::time::FixedTimestep;
 use bevy::{log, prelude::*};
-use entity_gym_rs::agent::{self, Action, Agent, AgentOps, Featurizable, Obs};
+use entity_gym_rs::agent::{self, Agent, AgentOps, Obs};
 use heron::prelude::*;
 use heron::PhysicsSteps;
 use rand::rngs::SmallRng;
@@ -34,6 +34,7 @@ struct Stats {
 
 #[derive(Clone)]
 pub struct Settings {
+    pub seed: u64,
     pub frameskip: u32,
     pub frame_rate: f32,
     pub fixed_timestep: bool,
@@ -50,11 +51,7 @@ impl Settings {
     }
 }
 
-pub fn base_app(
-    seed: u64,
-    settings: &Settings,
-    agent: Option<Box<dyn Agent>>,
-) -> App {
+pub fn base_app(settings: &Settings, agent: Option<Box<dyn Agent>>) -> App {
     let mut main_system = SystemSet::new()
         .with_system(ai)
         .with_system(check_boundary_collision)
@@ -71,14 +68,14 @@ pub fn base_app(
     }
     let mut app = App::new();
     app.add_plugin(PhysicsPlugin::default())
-        .insert_resource(SmallRng::seed_from_u64(seed))
+        .insert_resource(SmallRng::seed_from_u64(settings.seed))
         .insert_resource(ClearColor(Color::rgb(0.0, 0.0, 0.0)))
         .insert_resource(RemainingTime(2700))
         .insert_resource(Stats::default())
         .insert_resource(settings.clone())
         .insert_non_send_resource(Player(agent))
         .add_event::<GameOver>()
-        .add_event::<FighterAction>()
+        .add_event::<act::FighterAction>()
         .add_system_set(main_system);
     app
 }
@@ -89,7 +86,7 @@ pub fn app(settings: Settings, agent: Option<Box<dyn Agent>>) -> App {
         None if settings.random_ai => Some(agent::random()),
         None => agent,
     };
-    let mut app = base_app(0, &settings, agent);
+    let mut app = base_app(&settings, agent);
     if settings.headless {
         app.insert_resource(ScheduleRunnerSettings::run_loop(
             Duration::from_secs_f64(0.0),
@@ -132,6 +129,7 @@ pub fn run_training(
     seed: u64,
 ) {
     let settings = Settings {
+        seed,
         frameskip: config.frameskip,
         action_interval: config.act_interval,
         headless: true,
@@ -440,7 +438,7 @@ fn spawn_asteroids(
 }
 
 fn keyboard_events(
-    mut action_events: EventWriter<FighterAction>,
+    mut action_events: EventWriter<act::FighterAction>,
     remaining_time: Res<RemainingTime>,
     settings: Res<Settings>,
     keys: Res<Input<KeyCode>>,
@@ -449,17 +447,28 @@ fn keyboard_events(
     if remaining_time.0 as u32 % settings.action_interval != 0 {
         return;
     }
-    if keys.pressed(KeyCode::Up) || keys.pressed(KeyCode::W) {
-        action_events.send(FighterAction::Thrust);
-    }
-    if keys.pressed(KeyCode::Left) || keys.pressed(KeyCode::A) {
-        action_events.send(FighterAction::TurnLeft);
-    } else if keys.pressed(KeyCode::Right) || keys.pressed(KeyCode::D) {
-        action_events.send(FighterAction::TurnRight);
+    let thrust = if keys.pressed(KeyCode::Up) || keys.pressed(KeyCode::W) {
+        act::Thrust::On
+    } else {
+        act::Thrust::Off
     };
-    if keys.pressed(KeyCode::Space) {
-        action_events.send(FighterAction::Shoot);
-    }
+    let turn = if keys.pressed(KeyCode::Left) || keys.pressed(KeyCode::A) {
+        act::Turn::Left
+    } else if keys.pressed(KeyCode::Right) || keys.pressed(KeyCode::D) {
+        act::Turn::Right
+    } else {
+        act::Turn::None
+    };
+    let shoot = if keys.pressed(KeyCode::Space) {
+        act::Shoot::On
+    } else {
+        act::Shoot::Off
+    };
+    action_events.send(act::FighterAction {
+        thrust,
+        shoot,
+        turn,
+    });
 }
 
 fn create_fighter_mesh() -> Mesh {
@@ -510,7 +519,7 @@ fn cooldowns(
 
 #[allow(clippy::too_many_arguments)]
 fn ai(
-    mut action_events: EventWriter<FighterAction>,
+    mut action_events: EventWriter<act::FighterAction>,
     mut player: NonSendMut<Player>,
     mut fighter: Query<(&mut Fighter, &Transform, &Velocity)>,
     mut exit: EventWriter<AppExit>,
@@ -530,7 +539,7 @@ fn ai(
         let vel = velocity.linear;
         let (direction_x, direction_y) = transform_to_direction(transform);
         let obs = Obs::new(stats.destroyed_asteroids as f32)
-            .entities([FighterFeats {
+            .entities([entity::Fighter {
                 x: pos.x,
                 y: pos.y,
                 dx: vel.x,
@@ -544,7 +553,7 @@ fn ai(
                 |(asteroid, transform, velocity)| {
                     let pos = transform.translation;
                     let vel = velocity.linear;
-                    AsteroidFeats {
+                    entity::Asteroid {
                         health: asteroid.health,
                         radius: asteroid.radius,
                         x: pos.x,
@@ -557,7 +566,7 @@ fn ai(
             .entities(bullets.iter().map(|(bullet, transform, velocity)| {
                 let pos = transform.translation;
                 let vel = velocity.linear;
-                BulletFeats {
+                entity::Bullet {
                     x: pos.x,
                     y: pos.y,
                     dx: vel.x,
@@ -565,7 +574,7 @@ fn ai(
                     lifetime: bullet.remaining_lifetime,
                 }
             }));
-        let action = player.act::<FighterAction>(&obs);
+        let action = player.act::<act::FighterAction>(&obs);
         match action {
             Some(action) => action_events.send(action),
             None => exit.send(AppExit),
@@ -575,7 +584,7 @@ fn ai(
 
 #[allow(clippy::too_many_arguments)]
 fn fighter_actions(
-    mut action_events: EventReader<FighterAction>,
+    mut action_events: EventReader<act::FighterAction>,
     mut cmd: Commands,
     mut fighter: Query<(
         &mut Fighter,
@@ -607,40 +616,41 @@ fn fighter_actions(
             }
             let angle2 = angle + std::f32::consts::PI / 2.0;
 
-            match action {
-                FighterAction::TurnLeft => {
+            match action.turn {
+                act::Turn::Left => {
                     velocity.angular =
                         AxisAngle::new(Vec3::Z, fighter.turn_speed);
                 }
-                FighterAction::TurnRight => {
+                act::Turn::Right => {
                     velocity.angular =
                         AxisAngle::new(Vec3::Z, -fighter.turn_speed);
                 }
-                FighterAction::Thrust => {
-                    let thrust = Vec3::new(angle2.cos(), angle2.sin(), 0.0)
-                        * fighter.acceleration;
-                    acceleration.linear = thrust;
-                }
-                FighterAction::Shoot => {
-                    if fighter.remaining_bullet_cooldown <= 0 {
-                        stats.bullets_fired += 1;
-                        spawn_bullet(
-                            &mut cmd,
-                            &mut meshes,
-                            &mut materials,
-                            transform.translation,
-                            velocity.linear
-                                + Vec3::new(angle2.cos(), angle2.sin(), 0.0)
-                                    * fighter.bullet_speed,
-                            fighter.bullet_lifetime,
-                        );
-                        fighter.remaining_bullet_cooldown =
-                            fighter.bullet_cooldown as i32;
-                        let kickback =
-                            -Vec3::new(angle2.cos(), angle2.sin(), 0.0)
-                                * fighter.bullet_kickback;
-                        velocity.linear += kickback;
-                    }
+                act::Turn::None => {}
+            }
+            if let act::Thrust::On = action.thrust {
+                let thrust = Vec3::new(angle2.cos(), angle2.sin(), 0.0)
+                    * fighter.acceleration;
+                acceleration.linear = thrust;
+            }
+
+            if let act::Shoot::On = action.shoot {
+                if fighter.remaining_bullet_cooldown <= 0 {
+                    stats.bullets_fired += 1;
+                    spawn_bullet(
+                        &mut cmd,
+                        &mut meshes,
+                        &mut materials,
+                        transform.translation,
+                        velocity.linear
+                            + Vec3::new(angle2.cos(), angle2.sin(), 0.0)
+                                * fighter.bullet_speed,
+                        fighter.bullet_lifetime,
+                    );
+                    fighter.remaining_bullet_cooldown =
+                        fighter.bullet_cooldown as i32;
+                    let kickback = -Vec3::new(angle2.cos(), angle2.sin(), 0.0)
+                        * fighter.bullet_kickback;
+                    velocity.linear += kickback;
                 }
             }
         }
@@ -683,43 +693,69 @@ struct RemainingTime(i32);
 
 struct Player(pub Option<Box<dyn Agent>>);
 
-#[derive(Featurizable)]
-struct AsteroidFeats {
-    health: f32,
-    radius: f32,
-    x: f32,
-    y: f32,
-    dx: f32,
-    dy: f32,
+mod entity {
+    use entity_gym_rs::agent::Featurizable;
+
+    #[derive(Featurizable)]
+    pub struct Asteroid {
+        pub health: f32,
+        pub radius: f32,
+        pub x: f32,
+        pub y: f32,
+        pub dx: f32,
+        pub dy: f32,
+    }
+
+    #[derive(Featurizable)]
+    pub struct Fighter {
+        pub x: f32,
+        pub y: f32,
+        pub dx: f32,
+        pub dy: f32,
+        pub direction_x: f32,
+        pub direction_y: f32,
+        pub remaining_time: i32,
+        pub gun_cooldown: u32,
+    }
+
+    #[derive(Featurizable)]
+    pub struct Bullet {
+        pub x: f32,
+        pub y: f32,
+        pub dx: f32,
+        pub dy: f32,
+        pub lifetime: u32,
+    }
 }
 
-#[derive(Featurizable)]
-struct FighterFeats {
-    x: f32,
-    y: f32,
-    dx: f32,
-    dy: f32,
-    direction_x: f32,
-    direction_y: f32,
-    remaining_time: i32,
-    gun_cooldown: u32,
-}
+mod act {
+    use entity_gym_rs::agent::Action;
 
-#[derive(Featurizable)]
-struct BulletFeats {
-    x: f32,
-    y: f32,
-    dx: f32,
-    dy: f32,
-    lifetime: u32,
-}
+    #[derive(Action, Clone, Copy, Debug)]
+    pub struct FighterAction {
+        pub thrust: Thrust,
+        pub shoot: Shoot,
+        pub turn: Turn,
+    }
 
-#[derive(Action, Clone, Copy, Debug)]
-enum FighterAction {
-    TurnLeft,
-    TurnRight,
-    Thrust,
-    Shoot,
+    #[derive(Action, Clone, Copy, Debug)]
+    pub enum Thrust {
+        On,
+        Off,
+    }
+
+    #[derive(Action, Clone, Copy, Debug)]
+    pub enum Turn {
+        Left,
+        Right,
+        None,
+    }
+
+    #[derive(Action, Clone, Copy, Debug)]
+    pub enum Shoot {
+        On,
+        Off,
+    }
 }
 
 fn transform_to_direction(transform: &Transform) -> (f32, f32) {
@@ -735,6 +771,7 @@ fn transform_to_direction(transform: &Transform) -> (f32, f32) {
 impl Default for Settings {
     fn default() -> Self {
         Settings {
+            seed: 0,
             frame_rate: 90.0,
             frameskip: 1,
             fixed_timestep: false,
