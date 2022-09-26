@@ -147,6 +147,7 @@ fn reset(
     mut query: Query<Entity, With<Asteroid>>,
     mut stats: ResMut<Stats>,
     mut fighter: Query<Entity, With<Fighter>>,
+    mut jets: Query<Entity, With<Jet>>,
     mut remaining_time: ResMut<RemainingTime>,
     mut player: NonSendMut<Player>,
 ) {
@@ -170,6 +171,9 @@ fn reset(
             cmd.entity(entity).despawn_recursive();
         }
         for entity in fighter.iter_mut() {
+            cmd.entity(entity).despawn_recursive();
+        }
+        for entity in jets.iter_mut() {
             cmd.entity(entity).despawn_recursive();
         }
         remaining_time.0 = 2700;
@@ -234,10 +238,25 @@ fn spawn_player(
             mesh: meshes.add(create_fighter_mesh()).into(),
             transform: Transform::default()
                 .with_scale(Vec3::splat(50.0))
-                .with_translation(Vec3::new(0.0, 0.0, 1.0)),
+                .with_translation(Vec3::new(0.0, 0.0, 0.5)),
             material: materials
                 .add(ColorMaterial::from(Color::rgba(0.2, 0.3, 0.6, 1.0))),
             ..default()
+        })
+        .with_children(|parent| {
+            let jet = Quad::new(Vec2::new(0.3, 0.20));
+            let handle = meshes.add(Mesh::from(jet));
+            parent
+                .spawn_bundle(ColorMesh2dBundle {
+                    mesh: handle.into(),
+                    material: materials.add(ColorMaterial::from(Color::rgba(
+                        1.0, 1.0, 1.0, 1.0,
+                    ))),
+                    transform: Transform::default()
+                        .with_translation(Vec3::new(0.0, -0.5, 0.0)),
+                    ..default()
+                })
+                .insert(Jet);
         });
 }
 
@@ -464,11 +483,16 @@ fn keyboard_events(
     } else {
         act::Shoot::Off
     };
-    action_events.send(act::FighterAction {
-        thrust,
-        shoot,
-        turn,
-    });
+    if thrust != act::Thrust::Off
+        || turn != act::Turn::None
+        || shoot != act::Shoot::Off
+    {
+        action_events.send(act::FighterAction {
+            thrust,
+            turn,
+            shoot,
+        });
+    }
 }
 
 fn create_fighter_mesh() -> Mesh {
@@ -591,7 +615,9 @@ fn fighter_actions(
         &Transform,
         &mut Velocity,
         &mut Acceleration,
+        &Children,
     )>,
+    mut jet: Query<&mut Visibility, With<Jet>>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
     mut stats: ResMut<Stats>,
@@ -601,8 +627,13 @@ fn fighter_actions(
     if remaining_time.0 as u32 % settings.action_interval != 0 {
         return;
     }
-    if let Some((mut fighter, transform, mut velocity, mut acceleration)) =
-        fighter.iter_mut().next()
+    if let Some((
+        mut fighter,
+        transform,
+        mut velocity,
+        mut acceleration,
+        children,
+    )) = fighter.iter_mut().next()
     {
         // Reset rotation and acceleration
         velocity.angular = AxisAngle::new(Vec3::Z, 0.0);
@@ -627,10 +658,17 @@ fn fighter_actions(
                 }
                 act::Turn::None => {}
             }
-            if let act::Thrust::On = action.thrust {
-                let thrust = Vec3::new(angle2.cos(), angle2.sin(), 0.0)
-                    * fighter.acceleration;
-                acceleration.linear = thrust;
+            let mut jet = jet.get_mut(*children.first().unwrap()).unwrap();
+            match action.thrust {
+                act::Thrust::On => {
+                    let thrust = Vec3::new(angle2.cos(), angle2.sin(), 0.0)
+                        * fighter.acceleration;
+                    acceleration.linear = thrust;
+                    jet.is_visible = true;
+                }
+                act::Thrust::Off => {
+                    jet.is_visible = false;
+                }
             }
 
             if let act::Shoot::On = action.shoot {
@@ -668,6 +706,9 @@ struct Fighter {
     bullet_kickback: f32,
     remaining_bullet_cooldown: i32,
 }
+
+#[derive(Component)]
+struct Jet;
 
 #[derive(Component)]
 struct Bullet {
@@ -738,20 +779,20 @@ mod act {
         pub turn: Turn,
     }
 
-    #[derive(Action, Clone, Copy, Debug)]
+    #[derive(Action, Clone, Copy, Debug, PartialEq, Eq)]
     pub enum Thrust {
         On,
         Off,
     }
 
-    #[derive(Action, Clone, Copy, Debug)]
+    #[derive(Action, Clone, Copy, Debug, PartialEq, Eq)]
     pub enum Turn {
         Left,
         Right,
         None,
     }
 
-    #[derive(Action, Clone, Copy, Debug)]
+    #[derive(Action, Clone, Copy, Debug, PartialEq, Eq)]
     pub enum Shoot {
         On,
         Off,
