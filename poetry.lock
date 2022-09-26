@@ -202,7 +202,7 @@ test = ["pytest", "black"]
 
 [[package]]
 name = "enn-trainer"
-version = "0.1.10"
+version = "0.1.11"
 description = "PPO and supervised training loops compatible with entity-gym"
 category = "main"
 optional = false
