@@ -1,7 +1,7 @@
 TrainConfig(
     version: 3,
     env: EnvConfig(
-        kwargs: "{\"act_interval\": 12}",
+        kwargs: "{\"frameskip\": 4, \"act_interval\": 12}",
         id: "BevyDogfight",
         validate: true,
     ),
@@ -16,7 +16,7 @@ TrainConfig(
         relpos_encoding: None,
         d_qk: 16,
         translation: TranslationConfig(
-            reference_entity: "FighterFeats",
+            reference_entity: "Fighter",
             position_features: [
                 "x",
                 "y",
@@ -30,9 +30,9 @@ TrainConfig(
         ),
     ),
     optim: OptimizerConfig(
-        lr: 0.001,
+        lr: 0.002,
         lr_warmup_steps: None,
-        bs: 1024,
+        bs: 4096,
         weight_decay: 0.0,
         micro_bs: None,
         anneal_lr: true,
@@ -53,14 +53,14 @@ TrainConfig(
     ),
     rollout: RolloutConfig(
         steps: 16,
-        num_envs: 128,
+        num_envs: 512,
         processes: 4,
     ),
     eval: None,
     vf_net: None,
     name: "config",
-    seed: 2,
-    total_timesteps: 2000000,
+    seed: 1,
+    total_timesteps: 64000000,
     max_train_time: None,
     torch_deterministic: true,
     cuda: true,

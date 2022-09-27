@@ -3,7 +3,6 @@ use std::io::Cursor;
 use bevy::{prelude::*, window::WindowId, winit::WinitWindows};
 use bevy_dogfight_ai::Settings;
 use clap::Parser;
-use entity_gym_rs::agent;
 use winit::window::Icon;
 
 #[derive(Parser, Debug)]
@@ -22,6 +21,13 @@ struct Args {
     fixed_timestep: bool,
     #[clap(long, value_parser, default_value = "1")]
     act_interval: u32,
+    #[clap(long, value_parser, default_value = "1")]
+    players: u32,
+    #[clap(long, value_parser, default_value = "25")]
+    asteroid_count: u32,
+    /// Enable continuous collision detection
+    #[clap(long)]
+    ccd: bool,
 }
 
 fn set_window_icon(windows: NonSend<WinitWindows>) {
@@ -54,9 +60,11 @@ fn main() {
         headless: args.headless,
         enable_logging: true,
         action_interval: args.act_interval,
+        players: args.players,
+        asteroid_count: args.asteroid_count,
+        continuous_collision_detection: args.ccd,
     };
-    let agent: Option<Box<dyn agent::Agent>> = args.agent_path.map(agent::load);
-    let mut app = bevy_dogfight_ai::app(settings, agent);
+    let mut app = bevy_dogfight_ai::app(settings, vec![]);
 
     info!("Starting launcher: Native");
     if !args.headless {

@@ -1,5 +1,5 @@
 State(
-    step: 1998848,
+    step: 63995904,
     restart: 0,
     next_eval_step: None,
     agent: "<blob:msgpack>",
@@ -9,7 +9,17 @@ State(
     obs_space: ObsSpace(
         global_features: [],
         entities: {
-            "FighterFeats": Entity(
+            "Asteroid": Entity(
+                features: [
+                    "health",
+                    "radius",
+                    "x",
+                    "y",
+                    "dx",
+                    "dy",
+                ],
+            ),
+            "Fighter": Entity(
                 features: [
                     "x",
                     "y",
@@ -21,17 +31,7 @@ State(
                     "gun_cooldown",
                 ],
             ),
-            "AsteroidFeats": Entity(
-                features: [
-                    "health",
-                    "radius",
-                    "x",
-                    "y",
-                    "dx",
-                    "dy",
-                ],
-            ),
-            "BulletFeats": Entity(
+            "Bullet": Entity(
                 features: [
                     "x",
                     "y",
@@ -45,10 +45,18 @@ State(
     action_space: {
         "FighterAction": CategoricalActionSpace(
             index_to_label: [
-                "TurnLeft",
-                "TurnRight",
-                "Thrust",
-                "Shoot",
+                "thrust=On,shoot=On,turn=Left",
+                "thrust=On,shoot=On,turn=Right",
+                "thrust=On,shoot=On,turn=None",
+                "thrust=On,shoot=Off,turn=Left",
+                "thrust=On,shoot=Off,turn=Right",
+                "thrust=On,shoot=Off,turn=None",
+                "thrust=Off,shoot=On,turn=Left",
+                "thrust=Off,shoot=On,turn=Right",
+                "thrust=Off,shoot=On,turn=None",
+                "thrust=Off,shoot=Off,turn=Left",
+                "thrust=Off,shoot=Off,turn=Right",
+                "thrust=Off,shoot=Off,turn=None",
             ],
         ),
     },
