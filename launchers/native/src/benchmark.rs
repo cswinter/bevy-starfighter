@@ -32,6 +32,7 @@ fn main() {
     };
     let mut env = TrainEnvBuilder::default()
         .entity::<entity::Fighter>()
+        .entity::<entity::EnemyFighter>()
         .entity::<entity::Asteroid>()
         .entity::<entity::Bullet>()
         .action::<act::FighterAction>()

@@ -18,7 +18,12 @@ impl Config {
     #[new]
     #[args(frameskip = "1", act_interval = "1", versus = "true", ccd = "true")]
     fn new(frameskip: u32, act_interval: u32, versus: bool, ccd: bool) -> Self {
-        Config { frameskip, act_interval, versus, ccd }
+        Config {
+            frameskip,
+            act_interval,
+            versus,
+            ccd,
+        }
     }
 }
 
@@ -31,6 +36,7 @@ fn create_env(
 ) -> PyVecEnv {
     let builder = TrainEnvBuilder::default()
         .entity::<entity::Fighter>()
+        .entity::<entity::EnemyFighter>()
         .entity::<entity::Asteroid>()
         .entity::<entity::Bullet>()
         .action::<act::FighterAction>();
@@ -43,14 +49,7 @@ fn create_env(
             first_env_index,
         )
     } else {
-        builder.build(
-            config,
-            super::train1,
-            num_envs,
-            threads,
-            first_env_index,
-        )
-
+        builder.build(config, super::train1, num_envs, threads, first_env_index)
     }
 }
 

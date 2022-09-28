@@ -866,15 +866,25 @@ fn ai(
         })
         .enumerate()
     {
-        let mut fighters = vec![];
+        let mut actor_entity = entity::Fighter {
+            x: 0.0,
+            y: 0.0,
+            dx: 0.0,
+            dy: 0.0,
+            direction_x: 0.0,
+            direction_y: 0.0,
+            remaining_time: remaining_time.0,
+            gun_cooldown: 0,
+            player: i as u32,
+        };
         let mut actor_id = None;
         if let Some(id) = ids.get(0) {
-            if let Ok((fighter, transform, velocity)) = fighter.get_mut(*id) {
+            if let Ok((fighter, transform, velocity)) = fighter.get(*id) {
                 let pos = transform.translation;
                 let vel = velocity.linear;
                 let (direction_x, direction_y) =
                     transform_to_direction(transform);
-                fighters.push(entity::Fighter {
+                actor_entity = entity::Fighter {
                     x: pos.x,
                     y: pos.y,
                     dx: vel.x,
@@ -885,30 +895,40 @@ fn ai(
                     gun_cooldown: fighter.remaining_bullet_cooldown.max(0)
                         as u32,
                     player: i as u32,
-                });
+                };
                 actor_id = Some(*id);
             }
-        }
-        if fighters.is_empty() {
-            fighters.push(entity::Fighter {
-                x: 0.0,
-                y: 0.0,
-                dx: 0.0,
-                dy: 0.0,
-                direction_x: 0.0,
-                direction_y: 0.0,
-                remaining_time: remaining_time.0,
-                gun_cooldown: 0,
-                player: i as u32,
-            });
-        }
+        };
         let score = if i == 0 {
             (stats.destroyed_asteroids + stats.destroyed_opponents) as f32
         } else {
             0.0
         };
         let obs = Obs::new(score)
-            .entities(fighters)
+            .entities([actor_entity])
+            .entities(
+                fighter.iter_mut().filter(|(f, _, _)| f.player_id != i).map(
+                    |(fighter, transform, velocity)| {
+                        let pos = transform.translation;
+                        let vel = velocity.linear;
+                        let (direction_x, direction_y) =
+                            transform_to_direction(transform);
+                        entity::EnemyFighter {
+                            x: pos.x,
+                            y: pos.y,
+                            dx: vel.x,
+                            dy: vel.y,
+                            direction_x,
+                            direction_y,
+                            gun_cooldown: fighter
+                                .remaining_bullet_cooldown
+                                .max(0)
+                                as u32,
+                            player: i as u32,
+                        }
+                    },
+                ),
+            )
             .entities(asteroids.iter().map(
                 |(asteroid, transform, velocity)| {
                     let pos = transform.translation;
@@ -1101,6 +1121,18 @@ pub mod entity {
         pub direction_x: f32,
         pub direction_y: f32,
         pub remaining_time: i32,
+        pub gun_cooldown: u32,
+        pub player: u32,
+    }
+
+    #[derive(Featurizable)]
+    pub struct EnemyFighter {
+        pub x: f32,
+        pub y: f32,
+        pub dx: f32,
+        pub dy: f32,
+        pub direction_x: f32,
+        pub direction_y: f32,
         pub gun_cooldown: u32,
         pub player: u32,
     }
