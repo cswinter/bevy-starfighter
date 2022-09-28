@@ -69,6 +69,7 @@ fn main() {
         continuous_collision_detection: args.ccd,
         respawn_time: args.respawn_time,
         opponent_stats_multiplier: args.opponent_stats_multiplier,
+        max_game_length: 2 * 60 * 90, // 2 minutes
     };
     let mut app = bevy_dogfight_ai::app(settings, vec![]);
 

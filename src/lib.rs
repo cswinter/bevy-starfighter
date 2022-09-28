@@ -48,6 +48,16 @@ struct Stats {
     destroyed_allies: usize,
 }
 
+impl Stats {
+    fn player0_score(&self) -> f32 {
+        (self.destroyed_asteroids + self.destroyed_opponents) as f32
+    }
+
+    fn player1_score(&self) -> f32 {
+        10.0 * self.destroyed_allies as f32 - self.timesteps as f32 * 0.001
+    }
+}
+
 #[derive(Clone)]
 pub struct Settings {
     pub seed: u64,
@@ -64,6 +74,7 @@ pub struct Settings {
     pub continuous_collision_detection: bool,
     pub respawn_time: u32,
     pub opponent_stats_multiplier: f32,
+    pub max_game_length: u32,
 }
 
 impl Settings {
@@ -244,9 +255,9 @@ fn reset(
         ) in players.0.iter_mut().enumerate()
         {
             let score = if i == 0 {
-                (stats.destroyed_asteroids + stats.destroyed_opponents) as f32
+                stats.player0_score()
             } else {
-                10.0 * stats.destroyed_allies as f32
+                stats.player1_score()
             };
             if let Some(p) = agent {
                 p.game_over(
@@ -287,7 +298,7 @@ fn reset(
         for entity in bullets.iter_mut() {
             cmd.entity(entity).despawn_recursive();
         }
-        remaining_time.0 = 2700;
+        remaining_time.0 = settings.max_game_length as i32;
         spawn_players(
             &settings,
             &mut cmd,
@@ -908,9 +919,9 @@ fn ai(
             }
         };
         let score = if i == 0 {
-            (stats.destroyed_asteroids + stats.destroyed_opponents) as f32
+            stats.player0_score()
         } else {
-            0.0
+            stats.player1_score()
         };
         let obs = Obs::new(score)
             .entities([actor_entity])
@@ -1222,6 +1233,7 @@ impl Default for Settings {
             continuous_collision_detection: false,
             respawn_time: 5 * 90, // 5 seconds
             opponent_stats_multiplier: 0.7,
+            max_game_length: 2 * 60 * 90, // 2 minutes
         }
     }
 }
