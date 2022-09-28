@@ -44,6 +44,8 @@ struct Stats {
     timesteps: usize,
     bullet_hits: usize,
     destroyed_asteroids: usize,
+    destroyed_opponents: usize,
+    destroyed_allies: usize,
 }
 
 #[derive(Clone)]
@@ -60,6 +62,8 @@ pub struct Settings {
     pub players: u32,
     pub asteroid_count: u32,
     pub continuous_collision_detection: bool,
+    pub respawn_time: u32,
+    pub opponent_stats_multiplier: f32,
 }
 
 impl Settings {
@@ -88,7 +92,8 @@ pub fn base_app(
         .with_system(expire_bullets)
         .with_system(fighter_actions.after(ai).after(keyboard_events))
         .with_system(cooldowns.after(fighter_actions))
-        .with_system(reset.after(cooldowns));
+        .with_system(respawn.after(cooldowns))
+        .with_system(reset.after(respawn));
     if settings.fixed_timestep {
         main_system = main_system.with_run_criteria(FixedTimestep::step(
             settings.timestep_secs() as f64,
@@ -103,7 +108,14 @@ pub fn base_app(
         .insert_resource(Stats::default())
         .insert_resource(settings.clone())
         .insert_non_send_resource(Players(
-            agents.into_iter().map(|a| (a, vec![])).collect(),
+            agents
+                .into_iter()
+                .map(|a| Player {
+                    agent: a,
+                    ids: vec![],
+                    respawns: vec![],
+                })
+                .collect(),
         ))
         .add_event::<GameOver>()
         .add_event::<(act::FighterAction, Entity)>()
@@ -194,20 +206,42 @@ fn reset(
     mut players: NonSendMut<Players>,
 ) {
     if let Some(GameOver) = game_over.iter().next() {
-        for (agent, ids) in players.0.iter_mut() {
+        for (
+            i,
+            Player {
+                agent,
+                ids,
+                respawns,
+            },
+        ) in players.0.iter_mut().enumerate()
+        {
+            let score = if i == 0 {
+                (stats.destroyed_asteroids + stats.destroyed_opponents) as f32
+            } else {
+                10.0 * stats.destroyed_allies as f32
+            };
             if let Some(p) = agent {
                 p.game_over(
-                    &Obs::new(stats.destroyed_asteroids as f32)
+                    &Obs::new(score)
                         .metric("bullets_fired", stats.bullets_fired as f32)
                         .metric("timesteps", stats.timesteps as f32)
                         .metric("bullet_hits", stats.bullet_hits as f32)
                         .metric(
                             "destroyed_asteroids",
                             stats.destroyed_asteroids as f32,
+                        )
+                        .metric(
+                            "destroyed_opponents",
+                            stats.destroyed_opponents as f32,
+                        )
+                        .metric(
+                            "destroyed_allies",
+                            stats.destroyed_allies as f32,
                         ),
                 );
             }
             ids.clear();
+            respawns.clear();
         }
         log::info!("Game Over! Stats: {:?}", stats);
         *stats = Stats::default();
@@ -271,75 +305,130 @@ fn spawn_players(
     } else {
         vec![Vec3::new(-500.0, 0.0, 0.5), Vec3::new(500.0, 0.0, 0.5)]
     };
-    for (i, (_, ids)) in players.0.iter_mut().enumerate() {
-        let entity = cmd
-            .spawn()
-            .insert(Fighter {
-                max_velocity: 500.0,
-                acceleration: 2000.0,
-                turn_speed: 5.0,
-                bullet_speed: 1500.0,
-                bullet_lifetime: 45,
-                bullet_cooldown: 12,
-                bullet_kickback: 50.0,
-                remaining_bullet_cooldown: 0,
-                player_id: i,
-            })
-            .insert(RigidBody::Dynamic)
-            .insert(PhysicMaterial {
-                restitution: 1.0,
-                density: 10000.0,
-                friction: 0.5,
-            })
-            .insert(CollisionShape::ConvexHull {
-                points: vec![
-                    50.0 * Vec3::new(0.0, 0.4, 0.0),
-                    50.0 * Vec3::new(-0.3, -0.4, 0.0),
-                    50.0 * Vec3::new(0.3, -0.4, 0.0),
-                ],
-                border_radius: None,
-            })
-            .insert(Velocity::from_linear(Vec3::new(0.0, 0.0, 0.0)))
-            .insert(Acceleration::from_linear(Vec3::new(0.0, 0.0, 0.0)))
-            .insert(RotationConstraints::lock())
-            .insert(CollisionType::Fighter)
-            .insert(
-                CollisionLayers::none()
-                    .with_group(CollisionLayer::Fighter)
-                    .with_masks(&[
-                        CollisionLayer::Asteroid,
-                        CollisionLayer::Bullet,
-                        CollisionLayer::Fighter,
-                    ]),
-            )
-            .insert_bundle(MaterialMesh2dBundle {
-                mesh: meshes.add(create_fighter_mesh()).into(),
-                transform: Transform::default()
-                    .with_scale(Vec3::splat(50.0))
-                    .with_translation(spawn_points[i % spawn_points.len()]),
-                material: materials.add(ColorMaterial::from(
-                    FIGHTER_COLORS[i % FIGHTER_COLORS.len()],
-                )),
-                ..default()
-            })
-            .insert(settings.ccd())
-            .with_children(|parent| {
-                let jet = Quad::new(Vec2::new(0.3, 0.20));
-                let handle = meshes.add(Mesh::from(jet));
-                parent
-                    .spawn_bundle(ColorMesh2dBundle {
-                        mesh: handle.into(),
-                        material: materials.add(ColorMaterial::from(
-                            Color::rgba(1.0, 1.0, 1.0, 1.0),
-                        )),
-                        transform: Transform::default()
-                            .with_translation(Vec3::new(0.0, -0.5, 0.0)),
-                        ..default()
-                    })
-                    .insert(Jet);
-            })
-            .id();
-        ids.push(entity);
+    for (i, player) in players.0.iter_mut().enumerate() {
+        spawn_fighter(
+            player,
+            i,
+            settings,
+            cmd,
+            meshes,
+            materials,
+            spawn_points[i % spawn_points.len()],
+        )
+    }
+}
+
+fn spawn_fighter(
+    player: &mut Player,
+    player_id: usize,
+    settings: &Settings,
+    cmd: &mut Commands,
+    meshes: &mut ResMut<Assets<Mesh>>,
+    materials: &mut ResMut<Assets<ColorMaterial>>,
+    position: Vec3,
+) {
+    let stats_multiplier = if player_id == 0 {
+        1.0
+    } else {
+        settings.opponent_stats_multiplier
+    };
+    let entity = cmd
+        .spawn()
+        .insert(Fighter {
+            max_velocity: 500.0 * stats_multiplier,
+            acceleration: 2000.0 * stats_multiplier,
+            turn_speed: 5.0 * stats_multiplier,
+            bullet_speed: 1500.0 * stats_multiplier,
+            bullet_lifetime: 45,
+            bullet_cooldown: 12,
+            bullet_kickback: 50.0 * stats_multiplier,
+            remaining_bullet_cooldown: 0,
+            player_id,
+        })
+        .insert(RigidBody::Dynamic)
+        .insert(PhysicMaterial {
+            restitution: 1.0,
+            density: 10000.0,
+            friction: 0.5,
+        })
+        .insert(CollisionShape::ConvexHull {
+            points: vec![
+                50.0 * Vec3::new(0.0, 0.4, 0.0),
+                50.0 * Vec3::new(-0.3, -0.4, 0.0),
+                50.0 * Vec3::new(0.3, -0.4, 0.0),
+            ],
+            border_radius: None,
+        })
+        .insert(Velocity::from_linear(Vec3::new(0.0, 0.0, 0.0)))
+        .insert(Acceleration::from_linear(Vec3::new(0.0, 0.0, 0.0)))
+        .insert(RotationConstraints::lock())
+        .insert(CollisionType::Fighter)
+        .insert(
+            CollisionLayers::none()
+                .with_group(CollisionLayer::Fighter)
+                .with_masks(&[
+                    CollisionLayer::Asteroid,
+                    CollisionLayer::Bullet,
+                    CollisionLayer::Fighter,
+                ]),
+        )
+        .insert_bundle(MaterialMesh2dBundle {
+            mesh: meshes.add(create_fighter_mesh()).into(),
+            transform: Transform::default()
+                .with_scale(Vec3::splat(50.0))
+                .with_translation(position),
+            material: materials.add(ColorMaterial::from(
+                FIGHTER_COLORS[player_id % FIGHTER_COLORS.len()],
+            )),
+            ..default()
+        })
+        .insert(settings.ccd())
+        .with_children(|parent| {
+            let jet = Quad::new(Vec2::new(0.3, 0.20));
+            let handle = meshes.add(Mesh::from(jet));
+            parent
+                .spawn_bundle(ColorMesh2dBundle {
+                    mesh: handle.into(),
+                    material: materials.add(ColorMaterial::from(Color::rgba(
+                        1.0, 1.0, 1.0, 1.0,
+                    ))),
+                    transform: Transform::default()
+                        .with_translation(Vec3::new(0.0, -0.5, 0.0)),
+                    ..default()
+                })
+                .insert(Jet);
+        })
+        .id();
+    player.ids.push(entity);
+}
+
+fn respawn(
+    settings: Res<Settings>,
+    mut cmd: Commands,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<ColorMaterial>>,
+    mut players: NonSendMut<Players>,
+) {
+    for (i, player) in players.0.iter_mut().enumerate() {
+        if player.ids.len() + player.respawns.len() < i {
+            player.respawns.push(settings.respawn_time as i32);
+        }
+        for j in 0..player.respawns.len() {
+            player.respawns[j] -= settings.frameskip as i32;
+            if player.respawns[j] <= 0 {
+                spawn_fighter(
+                    player,
+                    i,
+                    &settings,
+                    &mut cmd,
+                    &mut meshes,
+                    &mut materials,
+                    Vec3::new(0.0, 0.0, 0.5),
+                );
+                player.respawns.remove(j);
+                break; // loop counter is incorrect now, need to break
+            }
+        }
     }
 }
 
@@ -367,14 +456,7 @@ fn spawn_bullet(
             density: 2000.0,
             friction: 0.5,
         })
-        .insert(CollisionShape::ConvexHull {
-            points: vec![
-                5.0 * Vec3::new(0.0, 0.4, 0.0),
-                5.0 * Vec3::new(-0.3, -0.4, 0.0),
-                5.0 * Vec3::new(0.3, -0.4, 0.0),
-            ],
-            border_radius: None,
-        })
+        .insert(CollisionShape::Sphere { radius })
         .insert(Velocity::from_linear(velocity))
         .insert(RotationConstraints::lock())
         .insert(CollisionType::Bullet)
@@ -399,13 +481,16 @@ fn spawn_bullet(
         });
 }
 
+#[allow(clippy::too_many_arguments)]
 fn detect_collisions(
     mut cmd: Commands,
     mut events: EventReader<CollisionEvent>,
     collision_type: Query<&CollisionType>,
     mut game_over: EventWriter<GameOver>,
     mut asteroids: Query<(&mut Asteroid, &mut Handle<ColorMaterial>)>,
+    mut fighters: Query<&mut Fighter>,
     mut materials: ResMut<Assets<ColorMaterial>>,
+    mut players: NonSendMut<Players>,
     mut stats: ResMut<Stats>,
 ) {
     //log::info!("{}", stats.timesteps);
@@ -423,51 +508,120 @@ fn detect_collisions(
                 collision_type.get(data2.rigid_body_entity()).unwrap(),
             ) {
                 (CollisionType::Fighter, CollisionType::Asteroid) => {
-                    cmd.entity(data1.rigid_body_entity()).despawn();
-                    game_over.send(GameOver);
+                    remove_fighter(
+                        &mut cmd,
+                        &mut stats,
+                        &mut game_over,
+                        &mut fighters,
+                        &mut players,
+                        data1.rigid_body_entity(),
+                    );
                 }
                 (CollisionType::Asteroid, CollisionType::Fighter) => {
-                    cmd.entity(data2.rigid_body_entity()).despawn();
-                    game_over.send(GameOver);
+                    remove_fighter(
+                        &mut cmd,
+                        &mut stats,
+                        &mut game_over,
+                        &mut fighters,
+                        &mut players,
+                        data2.rigid_body_entity(),
+                    );
                 }
                 (CollisionType::Bullet, CollisionType::Asteroid) => {
-                    cmd.entity(data1.rigid_body_entity()).despawn();
-                    let (mut asteroid, mut material) =
-                        asteroids.get_mut(data2.rigid_body_entity()).unwrap();
-                    asteroid.health -= 1.0;
-                    stats.bullet_hits += 1;
-                    if asteroid.health <= 0.0 {
-                        cmd.entity(data2.rigid_body_entity()).despawn();
-                        stats.destroyed_asteroids += 1;
-                    } else {
-                        *material =
-                            materials.add(ColorMaterial::from(Color::rgb(
-                                1.0 - 0.08 * asteroid.health,
-                                1.0 - 0.1 * asteroid.health,
-                                1.0 - 0.1 * asteroid.health,
-                            )));
-                    }
+                    handle_bullet_asteroid_collision(
+                        &mut cmd,
+                        &mut asteroids,
+                        &mut materials,
+                        &mut stats,
+                        data2.rigid_body_entity(),
+                        data1.rigid_body_entity(),
+                    );
                 }
                 (CollisionType::Asteroid, CollisionType::Bullet) => {
+                    handle_bullet_asteroid_collision(
+                        &mut cmd,
+                        &mut asteroids,
+                        &mut materials,
+                        &mut stats,
+                        data1.rigid_body_entity(),
+                        data2.rigid_body_entity(),
+                    );
+                }
+                (CollisionType::Fighter, CollisionType::Bullet) => {
+                    remove_fighter(
+                        &mut cmd,
+                        &mut stats,
+                        &mut game_over,
+                        &mut fighters,
+                        &mut players,
+                        data1.rigid_body_entity(),
+                    );
                     cmd.entity(data2.rigid_body_entity()).despawn();
-                    let (mut asteroid, mut material) =
-                        asteroids.get_mut(data1.rigid_body_entity()).unwrap();
-                    asteroid.health -= 1.0;
-                    stats.bullet_hits += 1;
-                    if asteroid.health <= 0.0 {
-                        cmd.entity(data1.rigid_body_entity()).despawn();
-                        stats.destroyed_asteroids += 1;
-                    } else {
-                        *material =
-                            materials.add(ColorMaterial::from(Color::rgb(
-                                1.0 - 0.08 * asteroid.health,
-                                1.0 - 0.1 * asteroid.health,
-                                1.0 - 0.1 * asteroid.health,
-                            )));
-                    }
+                }
+                (CollisionType::Bullet, CollisionType::Fighter) => {
+                    remove_fighter(
+                        &mut cmd,
+                        &mut stats,
+                        &mut game_over,
+                        &mut fighters,
+                        &mut players,
+                        data1.rigid_body_entity(),
+                    );
+                    cmd.entity(data2.rigid_body_entity()).despawn();
                 }
                 _ => {}
             }
+        }
+    }
+}
+
+fn handle_bullet_asteroid_collision(
+    cmd: &mut Commands,
+    asteroids: &mut Query<(&mut Asteroid, &mut Handle<ColorMaterial>)>,
+    materials: &mut ResMut<Assets<ColorMaterial>>,
+    stats: &mut ResMut<Stats>,
+    asteroid_entity: Entity,
+    bullet: Entity,
+) {
+    cmd.entity(bullet).despawn();
+    let (mut asteroid, mut material) =
+        asteroids.get_mut(asteroid_entity).unwrap();
+    asteroid.health -= 1.0;
+    stats.bullet_hits += 1;
+    if asteroid.health <= 0.0 {
+        cmd.entity(asteroid_entity).despawn();
+        stats.destroyed_asteroids += 1;
+    } else {
+        *material = materials.add(ColorMaterial::from(Color::rgb(
+            1.0 - 0.08 * asteroid.health,
+            1.0 - 0.1 * asteroid.health,
+            1.0 - 0.1 * asteroid.health,
+        )));
+    }
+}
+
+fn remove_fighter(
+    cmd: &mut Commands,
+    stats: &mut ResMut<Stats>,
+    game_over: &mut EventWriter<GameOver>,
+    fighters: &mut Query<&mut Fighter>,
+    players: &mut NonSendMut<Players>,
+    fighter: Entity,
+) {
+    if let Ok(fighter) = fighters.get_mut(fighter) {
+        stats.bullet_hits += 1;
+        if fighter.player_id == 0 {
+            game_over.send(GameOver);
+            stats.destroyed_allies += 1;
+        } else {
+            stats.destroyed_opponents += 1;
+        }
+    }
+    cmd.entity(fighter).despawn_recursive();
+    for player in players.0.iter_mut() {
+        if let Some(index) = player.ids.iter().position(|id| *id == fighter) {
+            player.ids.remove(index);
+            break;
         }
     }
 }
@@ -598,9 +752,10 @@ fn keyboard_events(
     } else {
         act::Shoot::Off
     };
-    if thrust != act::Thrust::Off
+    if (thrust != act::Thrust::Off
         || turn != act::Turn::None
-        || shoot != act::Shoot::Off
+        || shoot != act::Shoot::Off)
+        && !players.0[0].ids.is_empty()
     {
         action_events.send((
             act::FighterAction {
@@ -608,7 +763,7 @@ fn keyboard_events(
                 turn,
                 shoot,
             },
-            players.0[0].1[0],
+            players.0[0].ids[0],
         ));
     }
 }
@@ -674,17 +829,29 @@ fn ai(
     if remaining_time.0 as u32 % settings.action_interval != 0 {
         return;
     }
-    for (agent, fighters) in players
+    for (i, (agent, ids)) in players
         .0
         .iter_mut()
-        .filter_map(|(agent, players)| agent.as_mut().map(|a| (a, players)))
+        .filter_map(|Player { agent, ids, .. }| {
+            agent.as_mut().map(|a| (a, ids))
+        })
+        .enumerate()
     {
-        let id = fighters[0];
+        if ids.is_empty() {
+            continue;
+        }
+
+        let id = ids[0];
         if let Ok((fighter, transform, velocity)) = fighter.get_mut(id) {
             let pos = transform.translation;
             let vel = velocity.linear;
             let (direction_x, direction_y) = transform_to_direction(transform);
-            let obs = Obs::new(stats.destroyed_asteroids as f32)
+            let score = if i == 0 {
+                (stats.destroyed_asteroids + stats.destroyed_opponents) as f32
+            } else {
+                0.0
+            };
+            let obs = Obs::new(score)
                 .entities([entity::Fighter {
                     x: pos.x,
                     y: pos.y,
@@ -695,6 +862,7 @@ fn ai(
                     remaining_time: remaining_time.0,
                     gun_cooldown: fighter.remaining_bullet_cooldown.max(0)
                         as u32,
+                    player: i as u32,
                 }])
                 .entities(asteroids.iter().map(
                     |(asteroid, transform, velocity)| {
@@ -797,7 +965,8 @@ fn fighter_actions(
                     &mut cmd,
                     &mut meshes,
                     &mut materials,
-                    transform.translation,
+                    transform.translation
+                        + 24.0 * Vec3::new(angle2.cos(), angle2.sin(), 0.0),
                     velocity.linear
                         + Vec3::new(angle2.cos(), angle2.sin(), 0.0)
                             * fighter.bullet_speed,
@@ -852,8 +1021,13 @@ struct GameOver;
 
 struct RemainingTime(i32);
 
-#[allow(clippy::type_complexity)]
-struct Players(Vec<(Option<Box<dyn Agent>>, Vec<Entity>)>);
+struct Players(Vec<Player>);
+
+struct Player {
+    agent: Option<Box<dyn Agent>>,
+    ids: Vec<Entity>,
+    respawns: Vec<i32>,
+}
 
 mod entity {
     use entity_gym_rs::agent::Featurizable;
@@ -878,6 +1052,7 @@ mod entity {
         pub direction_y: f32,
         pub remaining_time: i32,
         pub gun_cooldown: u32,
+        pub player: u32,
     }
 
     #[derive(Featurizable)]
@@ -945,6 +1120,8 @@ impl Default for Settings {
             players: 1,
             asteroid_count: 25,
             continuous_collision_detection: false,
+            respawn_time: 5 * 90, // 5 seconds
+            opponent_stats_multiplier: 0.7,
         }
     }
 }

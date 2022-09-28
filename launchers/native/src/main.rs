@@ -28,6 +28,10 @@ struct Args {
     /// Enable continuous collision detection
     #[clap(long)]
     ccd: bool,
+    #[clap(long, value_parser, default_value = "450")]
+    respawn_time: u32,
+    #[clap(long, value_parser, default_value = "0.7")]
+    opponent_stats_multiplier: f32,
 }
 
 fn set_window_icon(windows: NonSend<WinitWindows>) {
@@ -63,6 +67,8 @@ fn main() {
         players: args.players,
         asteroid_count: args.asteroid_count,
         continuous_collision_detection: args.ccd,
+        respawn_time: args.respawn_time,
+        opponent_stats_multiplier: args.opponent_stats_multiplier,
     };
     let mut app = bevy_dogfight_ai::app(settings, vec![]);
 
