@@ -636,21 +636,25 @@ fn remove_fighter(
     players: &mut NonSendMut<Players>,
     fighter: Entity,
 ) {
-    if let Ok(fighter) = fighters.get_mut(fighter) {
-        stats.bullet_hits += 1;
-        if fighter.player_id == 0 {
-            game_over.send(GameOver);
-            stats.destroyed_allies += 1;
-        } else {
-            stats.destroyed_opponents += 1;
-        }
-    }
-    cmd.entity(fighter).despawn_recursive();
+    let mut already_destroyed = true;
     for player in players.0.iter_mut() {
         if let Some(index) = player.ids.iter().position(|id| *id == fighter) {
             player.ids.remove(index);
+            already_destroyed = false;
             break;
         }
+    }
+    if !already_destroyed {
+        if let Ok(fighter) = fighters.get_mut(fighter) {
+            stats.bullet_hits += 1;
+            if fighter.player_id == 0 {
+                game_over.send(GameOver);
+                stats.destroyed_allies += 1;
+            } else {
+                stats.destroyed_opponents += 1;
+            }
+        }
+        cmd.entity(fighter).despawn_recursive();
     }
 }
 
