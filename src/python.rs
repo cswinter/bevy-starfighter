@@ -9,14 +9,16 @@ use pyo3::prelude::*;
 pub struct Config {
     pub frameskip: u32,
     pub act_interval: u32,
+    pub versus: bool,
+    pub ccd: bool,
 }
 
 #[pymethods]
 impl Config {
     #[new]
-    #[args(frameskip = "1", act_interval = "1")]
-    fn new(frameskip: u32, act_interval: u32) -> Self {
-        Config { frameskip, act_interval }
+    #[args(frameskip = "1", act_interval = "1", versus = "true", ccd = "true")]
+    fn new(frameskip: u32, act_interval: u32, versus: bool, ccd: bool) -> Self {
+        Config { frameskip, act_interval, versus, ccd }
     }
 }
 
@@ -27,18 +29,29 @@ fn create_env(
     threads: usize,
     first_env_index: u64,
 ) -> PyVecEnv {
-    TrainEnvBuilder::default()
+    let builder = TrainEnvBuilder::default()
         .entity::<entity::Fighter>()
         .entity::<entity::Asteroid>()
         .entity::<entity::Bullet>()
-        .action::<act::FighterAction>()
-        .build(
+        .action::<act::FighterAction>();
+    if config.versus {
+        builder.build_multiagent::<_, _, 2>(
             config,
-            super::run_training,
+            super::train2,
             num_envs,
             threads,
             first_env_index,
         )
+    } else {
+        builder.build(
+            config,
+            super::train1,
+            num_envs,
+            threads,
+            first_env_index,
+        )
+
+    }
 }
 
 #[pymodule]

@@ -178,7 +178,7 @@ pub fn app(settings: Settings, agents: Vec<Box<dyn Agent>>) -> App {
 #[cfg(feature = "python")]
 pub fn run_training(
     config: Config,
-    agent: entity_gym_rs::agent::TrainAgent,
+    agents: Vec<entity_gym_rs::agent::TrainAgent>,
     seed: u64,
 ) {
     let settings = Settings {
@@ -186,9 +186,36 @@ pub fn run_training(
         frameskip: config.frameskip,
         action_interval: config.act_interval,
         headless: true,
+        continuous_collision_detection: config.ccd,
         ..Settings::default()
     };
-    app(settings, Some(Box::new(agent))).run();
+    app(
+        settings,
+        agents
+            .into_iter()
+            .map(|x| Box::new(x) as Box<dyn Agent>)
+            .collect(),
+    )
+    .run();
+}
+
+#[cfg(feature = "python")]
+pub fn train1(
+    config: Config,
+    agent: entity_gym_rs::agent::TrainAgent,
+    seed: u64,
+) {
+    run_training(config, vec![agent], seed);
+}
+
+#[cfg(feature = "python")]
+pub fn train2(
+    config: Config,
+    agents: [entity_gym_rs::agent::TrainAgent; 2],
+    seed: u64,
+) {
+    let [a1, a2] = agents;
+    run_training(config, vec![a1, a2], seed);
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -237,7 +264,8 @@ fn reset(
                         .metric(
                             "destroyed_allies",
                             stats.destroyed_allies as f32,
-                        ),
+                        )
+                        .metric(&format!("player_{}_score", i), score),
                 );
             }
             ids.clear();
@@ -829,6 +857,7 @@ fn ai(
     if remaining_time.0 as u32 % settings.action_interval != 0 {
         return;
     }
+    let mut actions = vec![];
     for (i, (agent, ids)) in players
         .0
         .iter_mut()
@@ -837,22 +866,15 @@ fn ai(
         })
         .enumerate()
     {
-        if ids.is_empty() {
-            continue;
-        }
-
-        let id = ids[0];
-        if let Ok((fighter, transform, velocity)) = fighter.get_mut(id) {
-            let pos = transform.translation;
-            let vel = velocity.linear;
-            let (direction_x, direction_y) = transform_to_direction(transform);
-            let score = if i == 0 {
-                (stats.destroyed_asteroids + stats.destroyed_opponents) as f32
-            } else {
-                0.0
-            };
-            let obs = Obs::new(score)
-                .entities([entity::Fighter {
+        let mut fighters = vec![];
+        let mut actor_id = None;
+        if let Some(id) = ids.get(0) {
+            if let Ok((fighter, transform, velocity)) = fighter.get_mut(*id) {
+                let pos = transform.translation;
+                let vel = velocity.linear;
+                let (direction_x, direction_y) =
+                    transform_to_direction(transform);
+                fighters.push(entity::Fighter {
                     x: pos.x,
                     y: pos.y,
                     dx: vel.x,
@@ -863,39 +885,67 @@ fn ai(
                     gun_cooldown: fighter.remaining_bullet_cooldown.max(0)
                         as u32,
                     player: i as u32,
-                }])
-                .entities(asteroids.iter().map(
-                    |(asteroid, transform, velocity)| {
-                        let pos = transform.translation;
-                        let vel = velocity.linear;
-                        entity::Asteroid {
-                            health: asteroid.health,
-                            radius: asteroid.radius,
-                            x: pos.x,
-                            y: pos.y,
-                            dx: vel.x,
-                            dy: vel.y,
-                        }
-                    },
-                ))
-                .entities(bullets.iter().map(
-                    |(bullet, transform, velocity)| {
-                        let pos = transform.translation;
-                        let vel = velocity.linear;
-                        entity::Bullet {
-                            x: pos.x,
-                            y: pos.y,
-                            dx: vel.x,
-                            dy: vel.y,
-                            lifetime: bullet.remaining_lifetime,
-                        }
-                    },
-                ));
-            let action = agent.act::<act::FighterAction>(&obs);
-            match action {
-                Some(action) => action_events.send((action, id)),
-                None => exit.send(AppExit),
+                });
+                actor_id = Some(*id);
             }
+        }
+        if fighters.is_empty() {
+            fighters.push(entity::Fighter {
+                x: 0.0,
+                y: 0.0,
+                dx: 0.0,
+                dy: 0.0,
+                direction_x: 0.0,
+                direction_y: 0.0,
+                remaining_time: remaining_time.0,
+                gun_cooldown: 0,
+                player: i as u32,
+            });
+        }
+        let score = if i == 0 {
+            (stats.destroyed_asteroids + stats.destroyed_opponents) as f32
+        } else {
+            0.0
+        };
+        let obs = Obs::new(score)
+            .entities(fighters)
+            .entities(asteroids.iter().map(
+                |(asteroid, transform, velocity)| {
+                    let pos = transform.translation;
+                    let vel = velocity.linear;
+                    entity::Asteroid {
+                        health: asteroid.health,
+                        radius: asteroid.radius,
+                        x: pos.x,
+                        y: pos.y,
+                        dx: vel.x,
+                        dy: vel.y,
+                    }
+                },
+            ))
+            .entities(bullets.iter().map(|(bullet, transform, velocity)| {
+                let pos = transform.translation;
+                let vel = velocity.linear;
+                entity::Bullet {
+                    x: pos.x,
+                    y: pos.y,
+                    dx: vel.x,
+                    dy: vel.y,
+                    lifetime: bullet.remaining_lifetime,
+                }
+            }));
+        let action = agent.act_async::<act::FighterAction>(&obs);
+        actions.push((action, actor_id));
+    }
+    for (action, id) in actions {
+        let action = action.rcv();
+        match action {
+            Some(action) => {
+                if let Some(id) = id {
+                    action_events.send((action, id))
+                }
+            }
+            None => exit.send(AppExit),
         }
     }
 }
@@ -1029,7 +1079,7 @@ struct Player {
     respawns: Vec<i32>,
 }
 
-mod entity {
+pub mod entity {
     use entity_gym_rs::agent::Featurizable;
 
     #[derive(Featurizable)]
@@ -1065,7 +1115,7 @@ mod entity {
     }
 }
 
-mod act {
+pub mod act {
     use entity_gym_rs::agent::Action;
 
     #[derive(Action, Clone, Copy, Debug)]

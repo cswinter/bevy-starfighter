@@ -28,13 +28,14 @@ fn main() {
     let config = Config {
         frameskip: args.frameskip,
         act_interval: args.act_interval,
+        versus: false,
     };
     let mut env = TrainEnvBuilder::default()
-        .entity::<FighterFeats>()
-        .entity::<AsteroidFeats>()
-        .entity::<BulletFeats>()
-        .action::<FighterAction>()
-        .build(config, run_training, args.environments, args.threads, 0)
+        .entity::<entity::Fighter>()
+        .entity::<entity::Asteroid>()
+        .entity::<entity::Bullet>()
+        .action::<act::FighterAction>()
+        .build(config, train1, args.environments, args.threads, 0)
         .env;
     let steps = args.steps;
     env.reset();
