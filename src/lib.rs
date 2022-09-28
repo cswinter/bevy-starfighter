@@ -229,6 +229,7 @@ fn reset(
     mut stats: ResMut<Stats>,
     mut fighter: Query<Entity, With<Fighter>>,
     mut jets: Query<Entity, With<Jet>>,
+    mut bullets: Query<Entity, With<Bullet>>,
     mut remaining_time: ResMut<RemainingTime>,
     mut players: NonSendMut<Players>,
 ) {
@@ -281,6 +282,9 @@ fn reset(
             cmd.entity(entity).despawn_recursive();
         }
         for entity in jets.iter_mut() {
+            cmd.entity(entity).despawn_recursive();
+        }
+        for entity in bullets.iter_mut() {
             cmd.entity(entity).despawn_recursive();
         }
         remaining_time.0 = 2700;
@@ -593,7 +597,7 @@ fn detect_collisions(
                         &mut game_over,
                         &mut fighters,
                         &mut players,
-                        data1.rigid_body_entity(),
+                        data2.rigid_body_entity(),
                     );
                     cmd.entity(data2.rigid_body_entity()).despawn();
                 }
@@ -645,9 +649,9 @@ fn remove_fighter(
         }
     }
     if !already_destroyed {
-        if let Ok(fighter) = fighters.get_mut(fighter) {
+        if let Ok(f) = fighters.get_mut(fighter) {
             stats.bullet_hits += 1;
-            if fighter.player_id == 0 {
+            if f.player_id == 0 {
                 game_over.send(GameOver);
                 stats.destroyed_allies += 1;
             } else {
@@ -1095,12 +1099,22 @@ struct GameOver;
 
 struct RemainingTime(i32);
 
+#[derive(Debug)]
 struct Players(Vec<Player>);
 
 struct Player {
     agent: Option<Box<dyn Agent>>,
     ids: Vec<Entity>,
     respawns: Vec<i32>,
+}
+
+impl std::fmt::Debug for Player {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Player")
+            .field("ids", &self.ids)
+            .field("respawns", &self.respawns)
+            .finish()
+    }
 }
 
 pub mod entity {
