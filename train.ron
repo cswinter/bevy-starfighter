@@ -4,13 +4,19 @@ TrainConfig(
         id: "BevyDogfight",
         kwargs: "{\"frameskip\": 4, \"act_interval\": 12}",
     ),
-/*    net: (
-        translation: (
-            reference_entity: "Fighter",
+    net: (
+        relpos_encoding: (
+            extent: [8, 2],
             position_features: ["x", "y"],
             rotation_vec_features: ["direction_x", "direction_y"],
-        )
-    ),*/
+            radial: true,
+            distance: true,
+            interpolate: true,
+            scale: 500.0,
+            per_entity_values: false,
+            value_gate: "relu",
+        ),
+    ),
 /*    eval: (
         interval: 4000000,
         num_envs: 512,
