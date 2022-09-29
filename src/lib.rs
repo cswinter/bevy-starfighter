@@ -1048,8 +1048,16 @@ fn fighter_actions(
             act::Turn::Left => {
                 velocity.angular = AxisAngle::new(Vec3::Z, fighter.turn_speed);
             }
+            act::Turn::QuarterLeft => {
+                velocity.angular =
+                    AxisAngle::new(Vec3::Z, fighter.turn_speed * 0.25);
+            }
             act::Turn::Right => {
                 velocity.angular = AxisAngle::new(Vec3::Z, -fighter.turn_speed);
+            }
+            act::Turn::QuarterRight => {
+                velocity.angular =
+                    AxisAngle::new(Vec3::Z, -fighter.turn_speed * 0.25);
             }
             act::Turn::None => {}
         }
@@ -1215,7 +1223,9 @@ pub mod act {
     #[derive(Action, Clone, Copy, Debug, PartialEq, Eq)]
     pub enum Turn {
         Left,
+        QuarterLeft,
         Right,
+        QuarterRight,
         None,
     }
 
