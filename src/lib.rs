@@ -76,6 +76,8 @@ pub struct Settings {
     pub opponent_stats_multiplier: f32,
     pub max_game_length: u32,
     pub human_player: bool,
+    /// The interval at which the number of opponents is increased by one.
+    pub difficulty_ramp: u32,
 }
 
 impl Settings {
@@ -451,6 +453,7 @@ fn spawn_fighter(
 
 fn respawn(
     settings: Res<Settings>,
+    stats: Res<Stats>,
     mut cmd: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
@@ -458,7 +461,12 @@ fn respawn(
     mut rng: ResMut<SmallRng>,
 ) {
     for (i, player) in players.0.iter_mut().enumerate() {
-        if player.ids.len() + player.respawns.len() < i {
+        let target_count = if i == 0 {
+            1
+        } else {
+            1 + stats.timesteps / settings.difficulty_ramp as usize
+        };
+        if player.ids.len() + player.respawns.len() < target_count {
             player.respawns.push(settings.respawn_time as i32);
         }
         for j in 0..player.respawns.len() {
@@ -1247,6 +1255,7 @@ impl Default for Settings {
             opponent_stats_multiplier: 0.6,
             max_game_length: 2 * 60 * 90, // 2 minutes
             human_player: false,
+            difficulty_ramp: 20 * 90, // 20 seconds
         }
     }
 }

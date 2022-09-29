@@ -73,6 +73,7 @@ fn main() {
         opponent_stats_multiplier: args.opponent_stats_multiplier,
         max_game_length: 2 * 60 * 90, // 2 minutes
         human_player: args.human_player,
+        difficulty_ramp: 20 * 90,
     };
     let mut app = bevy_dogfight_ai::app(settings, vec![]);
 
