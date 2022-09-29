@@ -222,7 +222,7 @@ version = "0.1.0"
 dependencies = [
  "bevy",
  "clap",
- "entity-gym-rs",
+ "entity-gym-rs 0.6.0",
  "heron",
  "image",
  "pyo3",
@@ -1517,7 +1517,31 @@ dependencies = [
  "pyo3",
  "ragged-buffer",
  "rand",
- "rogue-net",
+ "rogue-net 0.3.0",
+ "rustc-hash",
+]
+
+[[package]]
+name = "entity-gym-rs"
+version = "0.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "266248c9071a8f6b6ad01c45bb283cc026f673b1b248329f845dd7ee0cfcd83e"
+dependencies = [
+ "anyhow",
+ "arrayvec",
+ "atomicbox",
+ "clap",
+ "crossbeam",
+ "crossbeam-channel",
+ "entity-gym-derive",
+ "lazy_static",
+ "maplit",
+ "ndarray",
+ "numpy",
+ "pyo3",
+ "ragged-buffer",
+ "rand",
+ "rogue-net 0.4.0",
  "rustc-hash",
 ]
 
@@ -2614,7 +2638,7 @@ dependencies = [
  "bevy",
  "bevy-dogfight-ai",
  "clap",
- "entity-gym-rs",
+ "entity-gym-rs 0.5.0",
  "image",
  "ragged-buffer",
  "winit",
@@ -3469,6 +3493,25 @@ name = "rogue-net"
 version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d8ae5feb3f89e7b18e06f04f86078065483df9b6fd35d2af5c99e17a1fa41c5c"
+dependencies = [
+ "clap",
+ "env_logger 0.9.0",
+ "indexmap",
+ "log",
+ "ndarray",
+ "rand",
+ "rmpv",
+ "ron",
+ "serde",
+ "statrs",
+ "tar",
+]
+
+[[package]]
+name = "rogue-net"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "293168f2198970ae2cfc5dea3e34153a64b506a57ba65f142a30fbdcab9ec2e5"
 dependencies = [
  "clap",
  "env_logger 0.9.0",

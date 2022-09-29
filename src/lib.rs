@@ -905,25 +905,14 @@ fn ai(
         })
         .enumerate()
     {
-        let mut actor_entity = entity::Fighter {
-            x: 0.0,
-            y: 0.0,
-            dx: 0.0,
-            dy: 0.0,
-            direction_x: 0.0,
-            direction_y: 0.0,
-            remaining_time: remaining_time.0,
-            gun_cooldown: 0,
-            player: i as u32,
-        };
-        let mut actor_id = None;
-        if let Some(id) = ids.get(0) {
+        let mut actor_entities = vec![];
+        for id in &*ids {
             if let Ok((fighter, transform, velocity)) = fighter.get(*id) {
                 let pos = transform.translation;
                 let vel = velocity.linear;
                 let (direction_x, direction_y) =
                     transform_to_direction(transform);
-                actor_entity = entity::Fighter {
+                actor_entities.push(entity::Fighter {
                     x: pos.x,
                     y: pos.y,
                     dx: vel.x,
@@ -934,17 +923,16 @@ fn ai(
                     gun_cooldown: fighter.remaining_bullet_cooldown.max(0)
                         as u32,
                     player: i as u32,
-                };
-                actor_id = Some(*id);
+                });
             }
-        };
+        }
         let score = if i == 0 {
             stats.player0_score()
         } else {
             stats.player1_score()
         };
         let obs = Obs::new(score)
-            .entities([actor_entity])
+            .actors(actor_entities)
             .entities(
                 fighter.iter_mut().filter(|(f, _, _)| f.player_id != i).map(
                     |(fighter, transform, velocity)| {
@@ -994,14 +982,14 @@ fn ai(
                 }
             }));
         let action = agent.act_async::<act::FighterAction>(&obs);
-        actions.push((action, actor_id));
+        actions.push((action, ids.clone()));
     }
-    for (action, id) in actions {
+    for (action, ids) in actions {
         let action = action.rcv();
         match action {
-            Some(action) => {
-                if let Some(id) = id {
-                    action_events.send((action, id))
+            Some(actions) => {
+                for (action, id) in actions.into_iter().zip(ids) {
+                    action_events.send((action, id));
                 }
             }
             None => exit.send(AppExit),
