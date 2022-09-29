@@ -30,8 +30,10 @@ struct Args {
     ccd: bool,
     #[clap(long, value_parser, default_value = "450")]
     respawn_time: u32,
-    #[clap(long, value_parser, default_value = "0.7")]
+    #[clap(long, value_parser, default_value = "0.6")]
     opponent_stats_multiplier: f32,
+    #[clap(long)]
+    human_player: bool,
 }
 
 fn set_window_icon(windows: NonSend<WinitWindows>) {
@@ -70,6 +72,7 @@ fn main() {
         respawn_time: args.respawn_time,
         opponent_stats_multiplier: args.opponent_stats_multiplier,
         max_game_length: 2 * 60 * 90, // 2 minutes
+        human_player: args.human_player,
     };
     let mut app = bevy_dogfight_ai::app(settings, vec![]);
 

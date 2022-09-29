@@ -75,6 +75,7 @@ pub struct Settings {
     pub respawn_time: u32,
     pub opponent_stats_multiplier: f32,
     pub max_game_length: u32,
+    pub human_player: bool,
 }
 
 impl Settings {
@@ -135,20 +136,23 @@ pub fn base_app(
 }
 
 pub fn app(settings: Settings, agents: Vec<Box<dyn Agent>>) -> App {
-    let mut agents: Vec<Option<Box<dyn Agent>>> = match &settings.agent_path {
-        Some(path) => (0..settings.players)
-            .map(|_| Some(agent::load(path)))
-            .collect(),
-        None if settings.random_ai => (0..settings.players)
-            .map(|_| Some(agent::random()))
-            .collect(),
-        None => agents.into_iter().map(Some).collect(),
-    };
-    if agents.is_empty() {
+    let mut agents: Vec<Option<Box<dyn Agent>>> =
+        agents.into_iter().map(Some).collect();
+    if settings.human_player {
         agents.push(None);
     }
     while agents.len() < settings.players as usize {
-        agents.push(Some(agent::random()));
+        let agent = match &settings.agent_path {
+            Some(path) => Some(agent::load(path)),
+            None => {
+                if settings.random_ai {
+                    Some(agent::random())
+                } else {
+                    None
+                }
+            }
+        };
+        agents.push(agent);
     }
     let mut app = base_app(&settings, agents);
     if settings.headless {
@@ -451,6 +455,7 @@ fn respawn(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
     mut players: NonSendMut<Players>,
+    mut rng: ResMut<SmallRng>,
 ) {
     for (i, player) in players.0.iter_mut().enumerate() {
         if player.ids.len() + player.respawns.len() < i {
@@ -459,6 +464,13 @@ fn respawn(
         for j in 0..player.respawns.len() {
             player.respawns[j] -= settings.frameskip as i32;
             if player.respawns[j] <= 0 {
+                let spawn_pos = match rng.gen_range(0..4) {
+                    0 => Vec3::new(-1000.0, rng.gen_range(-500.0..500.0), 0.5),
+                    1 => Vec3::new(1000.0, rng.gen_range(-500.0..500.0), 0.5),
+                    2 => Vec3::new(rng.gen_range(-1000.0..1000.0), -500.0, 0.5),
+                    3 => Vec3::new(rng.gen_range(-1000.0..1000.0), 500.0, 0.5),
+                    _ => unreachable!(),
+                };
                 spawn_fighter(
                     player,
                     i,
@@ -466,7 +478,7 @@ fn respawn(
                     &mut cmd,
                     &mut meshes,
                     &mut materials,
-                    Vec3::new(0.0, 0.0, 0.5),
+                    spawn_pos,
                 );
                 player.respawns.remove(j);
                 break; // loop counter is incorrect now, need to break
@@ -1232,8 +1244,9 @@ impl Default for Settings {
             asteroid_count: 25,
             continuous_collision_detection: false,
             respawn_time: 5 * 90, // 5 seconds
-            opponent_stats_multiplier: 0.7,
+            opponent_stats_multiplier: 0.6,
             max_game_length: 2 * 60 * 90, // 2 minutes
+            human_player: false,
         }
     }
 }
