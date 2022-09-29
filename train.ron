@@ -4,14 +4,14 @@ TrainConfig(
         id: "BevyDogfight",
         kwargs: "{\"frameskip\": 4, \"act_interval\": 12}",
     ),
-    net: (
+/*    net: (
         translation: (
             reference_entity: "Fighter",
             position_features: ["x", "y"],
             rotation_vec_features: ["direction_x", "direction_y"],
         )
-    ),
-    eval: (
+    ),*/
+/*    eval: (
         interval: 4000000,
         num_envs: 512,
         steps: 1000,
@@ -20,5 +20,5 @@ TrainConfig(
             id: "BevyDogfight",
             kwargs: "{\"frameskip\": 4, \"act_interval\": 12}",
         )
-    ),
+    ),*/
 )
