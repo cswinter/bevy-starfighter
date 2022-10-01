@@ -228,6 +228,7 @@ dependencies = [
  "pyo3",
  "ragged-buffer",
  "rand",
+ "rogue-net 0.4.1",
  "winit",
 ]
 
@@ -1541,7 +1542,7 @@ dependencies = [
  "pyo3",
  "ragged-buffer",
  "rand",
- "rogue-net 0.4.0",
+ "rogue-net 0.4.1",
  "rustc-hash",
 ]
 
@@ -3509,9 +3510,9 @@ dependencies = [
 
 [[package]]
 name = "rogue-net"
-version = "0.4.0"
+version = "0.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "293168f2198970ae2cfc5dea3e34153a64b506a57ba65f142a30fbdcab9ec2e5"
+checksum = "e01d21feed92da0c0710c0e59612b06cb8b4ba33854f11bb15a43a6e2c686688"
 dependencies = [
  "clap",
  "env_logger 0.9.0",

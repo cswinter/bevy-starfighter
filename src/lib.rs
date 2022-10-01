@@ -349,22 +349,15 @@ fn spawn_players(
     materials: &mut ResMut<Assets<ColorMaterial>>,
     players: &mut NonSendMut<Players>,
 ) {
-    let spawn_points = if players.0.len() == 1 {
-        vec![Vec3::new(0.0, 0.0, 0.5)]
-    } else {
-        vec![Vec3::new(-500.0, 0.0, 0.5), Vec3::new(500.0, 0.0, 0.5)]
-    };
-    for (i, player) in players.0.iter_mut().enumerate() {
-        spawn_fighter(
-            player,
-            i,
-            settings,
-            cmd,
-            meshes,
-            materials,
-            spawn_points[i % spawn_points.len()],
-        )
-    }
+    spawn_fighter(
+        &mut players.0[0],
+        0,
+        settings,
+        cmd,
+        meshes,
+        materials,
+        Vec3::new(0.0, 0.0, 0.5),
+    )
 }
 
 fn spawn_fighter(
@@ -511,7 +504,7 @@ fn spawn_bullet(
     let handle = meshes.add(circle.into());
     cmd.spawn()
         .insert(Bullet {
-            remaining_lifetime: lifetime,
+            remaining_lifetime: lifetime as i32,
         })
         .insert(RigidBody::Dynamic)
         .insert(PhysicMaterial {
@@ -853,12 +846,13 @@ fn create_fighter_mesh() -> Mesh {
 }
 
 fn expire_bullets(
+    settings: Res<Settings>,
     mut cmd: Commands,
     mut bullets: Query<(Entity, &mut Bullet)>,
 ) {
     for (entity, mut bullet) in &mut bullets.iter_mut() {
-        bullet.remaining_lifetime -= 1;
-        if bullet.remaining_lifetime == 0 {
+        bullet.remaining_lifetime -= settings.frameskip as i32;
+        if bullet.remaining_lifetime <= 0 {
             cmd.entity(entity).despawn();
         }
     }
@@ -1106,7 +1100,7 @@ struct Jet;
 
 #[derive(Component)]
 struct Bullet {
-    remaining_lifetime: u32,
+    remaining_lifetime: i32,
 }
 
 #[derive(Component)]
@@ -1188,7 +1182,7 @@ pub mod entity {
         pub y: f32,
         pub dx: f32,
         pub dy: f32,
-        pub lifetime: u32,
+        pub lifetime: i32,
     }
 }
 
