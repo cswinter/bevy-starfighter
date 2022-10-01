@@ -891,6 +891,7 @@ fn ai(
         return;
     }
     let mut actions = vec![];
+    let num_players = players.0.len();
     for (i, (agent, ids)) in players
         .0
         .iter_mut()
@@ -899,7 +900,7 @@ fn ai(
         })
         .enumerate()
     {
-        if settings.players == 1 && ids.is_empty() {
+        if num_players == 1 && ids.is_empty() {
             return;
         }
         let mut actor_entities = vec![];
