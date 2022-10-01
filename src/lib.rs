@@ -899,6 +899,9 @@ fn ai(
         })
         .enumerate()
     {
+        if settings.players == 1 && ids.is_empty() {
+            return;
+        }
         let mut actor_entities = vec![];
         for id in &*ids {
             if let Ok((fighter, transform, velocity)) = fighter.get(*id) {
