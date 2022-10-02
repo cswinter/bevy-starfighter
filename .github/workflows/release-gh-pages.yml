@@ -6,7 +6,7 @@ on:
       - "v*.*.*"
 
 env:
-  PUBLIC_URL: /bevy-shell-template/
+  PUBLIC_URL: /bevy-starfighter
 
 jobs:
   setup:
