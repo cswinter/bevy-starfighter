@@ -222,7 +222,7 @@ version = "0.1.0"
 dependencies = [
  "bevy",
  "clap",
- "entity-gym-rs 0.7.0",
+ "entity-gym-rs 0.7.1",
  "heron",
  "image",
  "pyo3",
@@ -1524,9 +1524,9 @@ dependencies = [
 
 [[package]]
 name = "entity-gym-rs"
-version = "0.7.0"
+version = "0.7.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "91358eb01ddd6a6d8429261fba8b8a441308803639492246ccecdd0a9f230a39"
+checksum = "7037b1972c78ec382e912b3b28c84545df95e3a74a051d6125a9685f266d10b2"
 dependencies = [
  "anyhow",
  "arrayvec",
