@@ -69,6 +69,7 @@ pub struct Settings {
     pub headless: bool,
     pub enable_logging: bool,
     pub action_interval: u32,
+    pub ai_action_interval: Option<u32>,
     pub players: u32,
     pub asteroid_count: u32,
     pub continuous_collision_detection: bool,
@@ -887,7 +888,10 @@ fn ai(
     stats: Res<Stats>,
     settings: Res<Settings>,
 ) {
-    if remaining_time.0 as u32 % settings.action_interval != 0 {
+    let action_interval = settings
+        .ai_action_interval
+        .unwrap_or(settings.action_interval);
+    if remaining_time.0 as u32 % action_interval != 0 {
         return;
     }
     let mut actions = vec![];
@@ -1252,6 +1256,7 @@ impl Default for Settings {
             max_game_length: 2 * 60 * 90, // 2 minutes
             human_player: false,
             difficulty_ramp: 20 * 90, // 20 seconds
+            ai_action_interval: None,
         }
     }
 }

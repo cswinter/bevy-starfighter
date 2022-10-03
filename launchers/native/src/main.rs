@@ -21,6 +21,8 @@ struct Args {
     fixed_timestep: bool,
     #[clap(long, value_parser, default_value = "1")]
     act_interval: u32,
+    #[clap(long, value_parser)]
+    ai_act_interval: Option<u32>,
     #[clap(long, value_parser, default_value = "1")]
     players: u32,
     #[clap(long, value_parser, default_value = "25")]
@@ -66,6 +68,7 @@ fn main() {
         headless: args.headless,
         enable_logging: true,
         action_interval: args.act_interval,
+        ai_action_interval: args.ai_act_interval,
         players: args.players,
         asteroid_count: args.asteroid_count,
         continuous_collision_detection: args.ccd,
