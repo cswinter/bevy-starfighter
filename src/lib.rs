@@ -1146,7 +1146,7 @@ fn spawn_highscore_text(
             )),
             ..default()
         })
-        .insert(HighscoreText { score: 0, best: 0 });
+        .insert(HighscoreText { best: 0 });
 }
 
 fn update_score(
