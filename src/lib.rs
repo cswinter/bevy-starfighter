@@ -26,7 +26,7 @@ use std::time::Duration;
 #[cfg(feature = "python")]
 use python::Config;
 
-pub const LAUNCHER_TITLE: &str = "Bevy Shell - Template";
+pub const LAUNCHER_TITLE: &str = "Bevy Starfighter";
 
 const FIGHTER_COLORS: [Color; 2] =
     [Color::rgb(0.2, 0.3, 0.7), Color::rgb(0.7, 0.3, 0.2)];
