@@ -54,8 +54,14 @@ fn main() {
     // Mount the DOM
     yew::start_app::<Root>();
     // Start the Bevy App
-    let mut app =
-        bevy_dogfight_ai::app(bevy_dogfight_ai::Settings::default(), vec![]);
+    let settings = bevy_dogfight_ai::Settings {
+        players: 2,
+        ai_action_interval: Some(12),
+        continuous_collision_detection: true,
+        opponent_policy: Some("versus-relpos-obsfix-128m".to_string()),
+        ..Default::default()
+    };
+    let mut app = bevy_dogfight_ai::app(settings, vec![]);
     info!("Starting launcher: WASM");
     app.run();
 }

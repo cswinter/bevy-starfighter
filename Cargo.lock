@@ -1531,6 +1531,7 @@ dependencies = [
  "anyhow",
  "arrayvec",
  "atomicbox",
+ "bevy",
  "clap",
  "crossbeam",
  "crossbeam-channel",

@@ -10,6 +10,8 @@ use winit::window::Icon;
 struct Args {
     #[clap(long, value_parser)]
     agent_path: Option<String>,
+    #[clap(long, value_parser)]
+    agent_asset: Option<String>,
     #[clap(long, value_parser, default_value = "1")]
     frameskip: u32,
     /// Run in headless mode
@@ -77,6 +79,7 @@ fn main() {
         max_game_length: 2 * 60 * 90, // 2 minutes
         human_player: args.human_player,
         difficulty_ramp: 20 * 90,
+        opponent_policy: args.agent_asset,
     };
     let mut app = bevy_dogfight_ai::app(settings, vec![]);
 

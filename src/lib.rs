@@ -14,7 +14,9 @@ use bevy::sprite::MaterialMesh2dBundle;
 use bevy::time::FixedTimestep;
 use bevy::{log, prelude::*};
 use ccd::Ccd;
-use entity_gym_rs::agent::{self, Agent, AgentOps, Obs};
+use entity_gym_rs::agent::{
+    self, Agent, AgentOps, Obs, RogueNetAsset, RogueNetAssetLoader,
+};
 use heron::prelude::*;
 use heron::PhysicsSteps;
 use rand::rngs::SmallRng;
@@ -30,6 +32,8 @@ const FIGHTER_COLORS: [Color; 2] =
     [Color::rgb(0.2, 0.3, 0.7), Color::rgb(0.7, 0.3, 0.2)];
 const BULLET_COLORS: [Color; 2] =
     [Color::rgb(0.8, 0.8, 1.0), Color::rgb(1.0, 0.7, 0.7)];
+
+struct OpponentHandle(Option<Handle<RogueNetAsset>>);
 
 #[derive(PhysicsLayer)]
 enum CollisionLayer {
@@ -79,6 +83,7 @@ pub struct Settings {
     pub human_player: bool,
     /// The interval at which the number of opponents is increased by one.
     pub difficulty_ramp: u32,
+    pub opponent_policy: Option<String>,
 }
 
 impl Settings {
@@ -117,6 +122,7 @@ pub fn base_app(
     let mut app = App::new();
     app.add_plugin(PhysicsPlugin::default())
         .add_plugin(ccd::CcdPhysicsPlugin)
+        .insert_resource(OpponentHandle(None))
         .insert_resource(SmallRng::seed_from_u64(settings.seed))
         .insert_resource(ClearColor(Color::rgb(0.0, 0.0, 0.0)))
         .insert_resource(RemainingTime(2700))
@@ -190,6 +196,10 @@ pub fn app(settings: Settings, agents: Vec<Box<dyn Agent>>) -> App {
         .add_plugins(DefaultPlugins)
         .add_startup_system(setup);
     }
+    app.add_asset::<RogueNetAsset>()
+        .init_asset_loader::<RogueNetAssetLoader>()
+        .add_startup_system(load_opponent_policy)
+        .add_system(apply_policy_asset);
     app
 }
 
@@ -1081,6 +1091,31 @@ fn fighter_actions(
     }
 }
 
+fn load_opponent_policy(
+    settings: Res<Settings>,
+    mut opponent_handles: ResMut<OpponentHandle>,
+    server: Res<AssetServer>,
+) {
+    opponent_handles.0 = settings
+        .opponent_policy
+        .as_ref()
+        .map(|name| server.load(&format!("policies/{}.roguenet", name)));
+}
+
+fn apply_policy_asset(
+    mut players: NonSendMut<Players>,
+    opponent_handle: Res<OpponentHandle>,
+    assets: Res<Assets<RogueNetAsset>>,
+) {
+    if players.0.len() > 1 && players.0[1].agent.is_none() {
+        if let Some(asset) =
+            opponent_handle.0.as_ref().and_then(|h| assets.get(h))
+        {
+            players.0[1].agent = Some(Box::new(asset.agent.clone()));
+        }
+    }
+}
+
 #[derive(Component)]
 struct Fighter {
     max_velocity: f32,
@@ -1248,6 +1283,7 @@ impl Default for Settings {
             human_player: false,
             difficulty_ramp: 20 * 90, // 20 seconds
             ai_action_interval: None,
+            opponent_policy: None,
         }
     }
 }
