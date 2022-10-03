@@ -880,7 +880,7 @@ fn cooldowns(
 fn ai(
     mut action_events: EventWriter<(act::FighterAction, Entity)>,
     mut players: NonSendMut<Players>,
-    mut fighter: Query<(&mut Fighter, &Transform, &Velocity)>,
+    fighter: Query<(&mut Fighter, &Transform, &Velocity)>,
     mut exit: EventWriter<AppExit>,
     asteroids: Query<(&Asteroid, &Transform, &Velocity), Without<Fighter>>,
     bullets: Query<(&Bullet, &Transform, &Velocity), Without<Fighter>>,
@@ -896,14 +896,9 @@ fn ai(
     }
     let mut actions = vec![];
     let num_players = players.0.len();
-    for (i, (agent, ids)) in players
-        .0
-        .iter_mut()
-        .filter_map(|Player { agent, ids, .. }| {
-            agent.as_mut().map(|a| (a, ids))
-        })
-        .enumerate()
-    {
+    for (i, agent, ids) in players.0.iter_mut().enumerate().filter_map(
+        |(i, Player { agent, ids, .. })| agent.as_mut().map(|a| (i, a, ids)),
+    ) {
         if num_players == 1 && ids.is_empty() {
             return;
         }
@@ -935,29 +930,25 @@ fn ai(
         };
         let obs = Obs::new(score)
             .actors(actor_entities)
-            .entities(
-                fighter.iter_mut().filter(|(f, _, _)| f.player_id != i).map(
-                    |(fighter, transform, velocity)| {
-                        let pos = transform.translation;
-                        let vel = velocity.linear;
-                        let (direction_x, direction_y) =
-                            transform_to_direction(transform);
-                        entity::EnemyFighter {
-                            x: pos.x,
-                            y: pos.y,
-                            dx: vel.x,
-                            dy: vel.y,
-                            direction_x,
-                            direction_y,
-                            gun_cooldown: fighter
-                                .remaining_bullet_cooldown
-                                .max(0)
-                                as u32,
-                            player: i as u32,
-                        }
-                    },
-                ),
-            )
+            .entities(fighter.iter().filter(|(f, _, _)| f.player_id != i).map(
+                |(fighter, transform, velocity)| {
+                    let pos = transform.translation;
+                    let vel = velocity.linear;
+                    let (direction_x, direction_y) =
+                        transform_to_direction(transform);
+                    entity::EnemyFighter {
+                        x: pos.x,
+                        y: pos.y,
+                        dx: vel.x,
+                        dy: vel.y,
+                        direction_x,
+                        direction_y,
+                        gun_cooldown: fighter.remaining_bullet_cooldown.max(0)
+                            as u32,
+                        player: i as u32,
+                    }
+                },
+            ))
             .entities(asteroids.iter().map(
                 |(asteroid, transform, velocity)| {
                     let pos = transform.translation;
