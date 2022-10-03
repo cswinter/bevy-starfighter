@@ -86,6 +86,11 @@ pub struct Settings {
     pub opponent_policy: Option<String>,
 }
 
+#[derive(Component)]
+struct HighscoreText {
+    best: u32,
+}
+
 impl Settings {
     fn timestep_secs(&self) -> f32 {
         1.0 / self.frame_rate * self.frameskip as f32
@@ -198,8 +203,10 @@ pub fn app(settings: Settings, agents: Vec<Box<dyn Agent>>) -> App {
     }
     app.add_asset::<RogueNetAsset>()
         .init_asset_loader::<RogueNetAssetLoader>()
+        .add_system(apply_policy_asset)
+        .add_system(update_score)
         .add_startup_system(load_opponent_policy)
-        .add_system(apply_policy_asset);
+        .add_startup_system(spawn_highscore_text);
     app
 }
 
@@ -1113,6 +1120,44 @@ fn apply_policy_asset(
         {
             players.0[1].agent = Some(Box::new(asset.agent.clone()));
         }
+    }
+}
+
+fn spawn_highscore_text(
+    mut commands: Commands,
+    asset_server: Res<AssetServer>,
+) {
+    let font = asset_server.load("fonts/FiraSans-Bold.ttf");
+    let text_style = TextStyle {
+        font,
+        font_size: 60.0,
+        color: Color::WHITE,
+    };
+    let text_alignment = TextAlignment {
+        vertical: VerticalAlign::Top,
+        horizontal: HorizontalAlign::Left,
+    };
+    commands
+        .spawn_bundle(Text2dBundle {
+            text: Text::from_section("Score: 0\nBest: 0", text_style)
+                .with_alignment(text_alignment),
+            transform: Transform::from_translation(Vec3::new(
+                -1000.0, 500.0, 0.3,
+            )),
+            ..default()
+        })
+        .insert(HighscoreText { score: 0, best: 0 });
+}
+
+fn update_score(
+    stats: Res<Stats>,
+    mut highscore_text: Query<(&mut HighscoreText, &mut Text)>,
+) {
+    if let Some((mut highscore, mut text)) = highscore_text.iter_mut().next() {
+        let score = stats.player0_score() as u32;
+        highscore.best = highscore.best.max(score);
+        text.sections[0].value =
+            format!("Score: {}\nBest: {}", score, highscore.best);
     }
 }
 
