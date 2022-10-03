@@ -833,7 +833,7 @@ fn keyboard_events(
     if (thrust != act::Thrust::Off
         || turn != act::Turn::None
         || shoot != act::Shoot::Off
-        || settings.human_player)
+        || players.0[0].agent.is_none())
         && !players.0[0].ids.is_empty()
     {
         action_events.send((
