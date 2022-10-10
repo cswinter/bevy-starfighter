@@ -2,7 +2,8 @@
 
 A simple 2D space shooter game with deep neural network opponents built with [Bevy](https://bevyengine.org/) and [EntityGym](https://github.com/entity-neural-network/entity-gym-rs).
 
-INSERT GIF HERE
+https://user-images.githubusercontent.com/12845088/194914852-359bdcc7-92b0-4b11-8797-c50b1b767f67.mp4
+
 
 ## Usage
 
