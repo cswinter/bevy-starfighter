@@ -1111,15 +1111,20 @@ fn load_opponent_policy(
 }
 
 fn apply_policy_asset(
+    settings: Res<Settings>,
     mut players: NonSendMut<Players>,
     opponent_handle: Res<OpponentHandle>,
     assets: Res<Assets<RogueNetAsset>>,
 ) {
-    if players.0.len() > 1 && players.0[1].agent.is_none() {
+    if players.0.last().unwrap().agent.is_none() {
         if let Some(asset) =
             opponent_handle.0.as_ref().and_then(|h| assets.get(h))
         {
-            players.0[1].agent = Some(Box::new(asset.agent.clone()));
+            for (i, player) in players.0.iter_mut().enumerate() {
+                if i > 0 || !settings.human_player {
+                    player.agent = Some(Box::new(asset.agent.clone()));
+                }
+            }
         }
     }
 }
