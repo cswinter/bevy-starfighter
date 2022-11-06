@@ -395,13 +395,14 @@ fn spawn_fighter(
     let entity = cmd
         .spawn()
         .insert(Fighter {
-            max_velocity: 500.0 * stats_multiplier,
-            acceleration: 2000.0 * stats_multiplier,
-            turn_speed: 5.0 * stats_multiplier,
+            max_velocity: 1000.0 * stats_multiplier,
+            acceleration: 4000.0 * stats_multiplier,
+            drag_exp: 2.0,
+            drag_coef: 0.005,
+            turn_speed: 10.0 * stats_multiplier,
             bullet_speed: 1500.0 * stats_multiplier,
             bullet_lifetime: 45,
             bullet_cooldown: 12,
-            bullet_kickback: 50.0 * stats_multiplier,
             remaining_bullet_cooldown: 0,
             player_id,
         })
@@ -1069,6 +1070,12 @@ fn fighter_actions(
                 jet.is_visible = true;
             }
             act::Thrust::Off => {
+                let speed = velocity.linear.length();
+                // Should integrate here rather than just multiplying by interval, whatever
+                velocity.linear *= 1.0
+                    - fighter.drag_coef
+                        * (speed / fighter.max_velocity).powf(fighter.drag_exp)
+                        * settings.action_interval as f32;
                 jet.is_visible = false;
             }
         }
@@ -1091,9 +1098,6 @@ fn fighter_actions(
                 );
                 fighter.remaining_bullet_cooldown =
                     fighter.bullet_cooldown as i32;
-                let kickback = -Vec3::new(angle2.cos(), angle2.sin(), 0.0)
-                    * fighter.bullet_kickback;
-                velocity.linear += kickback;
             }
         }
     }
@@ -1171,11 +1175,12 @@ fn update_score(
 struct Fighter {
     max_velocity: f32,
     acceleration: f32,
+    drag_exp: f32,
+    drag_coef: f32,
     turn_speed: f32,
     bullet_cooldown: u32,
     bullet_speed: f32,
     bullet_lifetime: u32,
-    bullet_kickback: f32,
     remaining_bullet_cooldown: i32,
     player_id: usize,
 }
