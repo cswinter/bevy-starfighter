@@ -398,7 +398,7 @@ fn spawn_fighter(
             max_velocity: 1000.0 * stats_multiplier,
             acceleration: 4000.0 * stats_multiplier,
             drag_exp: 2.0,
-            drag_coef: 0.005,
+            drag_coef: 0.05,
             turn_speed: 10.0 * stats_multiplier,
             bullet_speed: 1500.0 * stats_multiplier,
             bullet_lifetime: 45,
