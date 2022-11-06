@@ -397,6 +397,7 @@ fn spawn_fighter(
         .insert(Fighter {
             max_velocity: 1000.0 * stats_multiplier,
             acceleration: 4000.0 * stats_multiplier,
+            deceleration: 2000.0 * stats_multiplier,
             drag_exp: 2.0,
             drag_coef: 0.05,
             turn_speed: 10.0 * stats_multiplier,
@@ -816,6 +817,8 @@ fn keyboard_events(
     }
     let thrust = if keys.pressed(KeyCode::Up) || keys.pressed(KeyCode::W) {
         act::Thrust::On
+    } else if keys.pressed(KeyCode::Down) || keys.pressed(KeyCode::S) {
+        act::Thrust::Stop
     } else {
         act::Thrust::Off
     };
@@ -1062,6 +1065,7 @@ fn fighter_actions(
             act::Turn::None => {}
         }
         let mut jet = jet.get_mut(*children.first().unwrap()).unwrap();
+        let speed = velocity.linear.length();
         match action.thrust {
             act::Thrust::On => {
                 let thrust = Vec3::new(angle2.cos(), angle2.sin(), 0.0)
@@ -1070,13 +1074,23 @@ fn fighter_actions(
                 jet.is_visible = true;
             }
             act::Thrust::Off => {
-                let speed = velocity.linear.length();
                 // Should integrate here rather than just multiplying by interval, whatever
                 velocity.linear *= 1.0
                     - fighter.drag_coef
                         * (speed / fighter.max_velocity).powf(fighter.drag_exp)
                         * settings.action_interval as f32;
                 jet.is_visible = false;
+            }
+            act::Thrust::Stop => {
+                if speed
+                    < fighter.deceleration * settings.action_interval as f32
+                        / settings.frame_rate
+                {
+                    velocity.linear = Vec3::ZERO;
+                } else {
+                    acceleration.linear =
+                        -velocity.linear.normalize() * fighter.deceleration;
+                }
             }
         }
 
@@ -1175,6 +1189,7 @@ fn update_score(
 struct Fighter {
     max_velocity: f32,
     acceleration: f32,
+    deceleration: f32,
     drag_exp: f32,
     drag_coef: f32,
     turn_speed: f32,
@@ -1290,6 +1305,7 @@ pub mod act {
     pub enum Thrust {
         On,
         Off,
+        Stop,
     }
 
     #[derive(Action, Clone, Copy, Debug, PartialEq, Eq)]
