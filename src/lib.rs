@@ -546,14 +546,17 @@ fn spawn_bullet(
     cmd.spawn(Bullet {
         remaining_lifetime: lifetime as i32,
     })
-    // .insert(RigidBody::Dynamic)
+    .insert(RigidBody::Dynamic)
     /*/.insert(PhysicMaterial {
         restitution: 1.0,
         density: 2000.0,
         friction: 0.5,
     })*/
-    // .insert(CollisionShape::Sphere { radius })
-    // .insert(Velocity::from_linear(velocity))
+    .insert(Collider::ball(radius))
+    .insert(Velocity {
+        linvel: velocity,
+        angvel: 0.0,
+    })
     // .insert(RotationConstraints::lock())
     .insert(CollisionType::Bullet)
     /*.insert(
@@ -1115,7 +1118,7 @@ fn fighter_actions(
                     &mut materials,
                     transform.translation
                         + 24.0 * Vec3::new(angle2.cos(), angle2.sin(), 0.0),
-                    imp.impulse
+                    vel.linvel
                         + Vec2::new(angle2.cos(), angle2.sin())
                             * fighter.bullet_speed,
                     fighter.bullet_lifetime,
