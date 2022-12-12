@@ -131,6 +131,10 @@ pub fn base_app(
     app//.add_plugin(PhysicsPlugin::default())
         // .add_plugin(ccd::CcdPhysicsPlugin)
         .add_plugin(RapierPhysicsPlugin::<NoUserData>::pixels_per_meter(1.0))
+        .insert_resource(RapierConfiguration {
+            gravity: Vect::new(0.0, 0.0),
+            ..default()
+        })
         .insert_resource(OpponentHandle(None))
         .insert_resource(RngState(SmallRng::seed_from_u64(settings.seed)))
         .insert_resource(ClearColor(Color::rgb(0.0, 0.0, 0.0)))

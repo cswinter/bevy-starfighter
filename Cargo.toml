@@ -42,5 +42,17 @@ ragged-buffer = "0.3.8"
 rogue-net = "0.4.1"
 bevy_rapier2d = { version = "0.19", features = ["debug-render"] }
 
+[profile.dev.package.rapier2d]
+opt-level = 3
+
+[profile.dev.package.entity-gym-rs]
+opt-level = 3
+
+[profile.dev.package.rogue-net]
+opt-level = 3
+
+[profile.dev.package.ragged-buffer]
+opt-level = 3
+
 [features]
 python = ["pyo3", "entity-gym-rs/python", "ragged-buffer/python"]
