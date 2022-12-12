@@ -1,5 +1,5 @@
 [package]
-name = "bevy-dogfight-ai"
+name = "bevy-starfighter"
 version = "0.2.0"
 edition = "2021"
 
@@ -11,7 +11,7 @@ members = [
 
 [lib]
 crate-type = ["cdylib", "rlib"]
-name = "bevy_dogfight_ai"
+name = "bevy_starfighter"
 
 [[bin]]
 name="native-launcher"
@@ -40,6 +40,7 @@ pyo3 = { version = "0.15", features = ["extension-module"], optional = true }
 clap = { version = "3.1.7", features = ["derive"] }
 ragged-buffer = "0.3.8"
 rogue-net = "0.4.1"
+bevy_rapier2d = { version = "0.19", features = ["debug-render"] }
 
 [features]
 python = ["pyo3", "entity-gym-rs/python", "ragged-buffer/python"]

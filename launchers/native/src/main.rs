@@ -1,7 +1,7 @@
 use std::io::Cursor;
 
 use bevy::{prelude::*, window::WindowId, winit::WinitWindows};
-use bevy_dogfight_ai::Settings;
+use bevy_starfighter::Settings;
 use clap::Parser;
 use winit::window::Icon;
 
@@ -81,7 +81,7 @@ fn main() {
         difficulty_ramp: 20 * 90,
         opponent_policy: args.agent_asset,
     };
-    let mut app = bevy_dogfight_ai::app(settings, vec![]);
+    let mut app = bevy_starfighter::app(settings, vec![]);
 
     info!("Starting launcher: Native");
     if !args.headless {

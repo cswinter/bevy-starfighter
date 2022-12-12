@@ -54,7 +54,7 @@ fn create_env(
 }
 
 #[pymodule]
-fn bevy_dogfight_ai(_py: Python, m: &PyModule) -> PyResult<()> {
+fn bevy_starfighter(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(create_env, m)?)?;
     m.add_class::<Config>()?;
     Ok(())

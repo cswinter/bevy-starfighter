@@ -2,6 +2,7 @@
 #[cfg(feature = "python")]
 pub mod python;
 
+use bevy_rapier2d::prelude::*;
 use bevy::app::AppExit;
 use bevy::app::ScheduleRunnerSettings;
 use bevy::asset::AssetPlugin;
@@ -129,6 +130,7 @@ pub fn base_app(
     let mut app = App::new();
     app//.add_plugin(PhysicsPlugin::default())
         // .add_plugin(ccd::CcdPhysicsPlugin)
+        .add_plugin(RapierPhysicsPlugin::<NoUserData>::pixels_per_meter(1.0))
         .insert_resource(OpponentHandle(None))
         .insert_resource(RngState(SmallRng::seed_from_u64(settings.seed)))
         .insert_resource(ClearColor(Color::rgb(0.0, 0.0, 0.0)))
@@ -202,6 +204,7 @@ pub fn app(settings: Settings, agents: Vec<Box<dyn Agent>>) -> App {
         /* .insert_resource(PhysicsSteps::every_frame(Duration::from_secs_f64(
             settings.timestep_secs() as f64,
         )))*/
+        .add_plugin(RapierDebugRenderPlugin::default())
         .add_system(keyboard_events)
         .add_startup_system(setup);
     }
@@ -351,7 +354,7 @@ fn setup(
         &mut materials,
         &mut players,
     );
-    cmd.spawn_bundle(Camera2dBundle::default());
+    cmd.spawn(Camera2dBundle::default());
     // Spawn rectangular bounds
     let bounds = Quad::new(Vec2::new(2000.0, 1000.0));
     let handle = meshes.add(bounds.into());
@@ -411,20 +414,19 @@ fn spawn_fighter(
             remaining_bullet_cooldown: 0,
             player_id,
         })
-        // .insert(RigidBody::Dynamic)
+        .insert(RigidBody::Dynamic)
         /* .insert(PhysicMaterial {
             restitution: 1.0,
             density: 10000.0,
             friction: 0.5,
         })*/
-        /* .insert(CollisionShape::ConvexHull {
-            points: vec![
-                50.0 * Vec3::new(0.0, 0.4, 0.0),
-                50.0 * Vec3::new(-0.3, -0.4, 0.0),
-                50.0 * Vec3::new(0.3, -0.4, 0.0),
+        .insert(Collider::convex_hull(
+            &[
+                1.0 * Vect::new(0.0, 0.4),
+                1.0 * Vect::new(-0.3, -0.4),
+                1.0 * Vect::new(0.3, -0.4),
             ],
-            border_radius: None,
-        })*/
+        ).unwrap())
         //.insert(Velocity::from_linear(Vec3::new(0.0, 0.0, 0.0)))
         //.insert(Acceleration::from_linear(Vec3::new(0.0, 0.0, 0.0)))
         //.insert(RotationConstraints::lock())
@@ -438,7 +440,7 @@ fn spawn_fighter(
                     CollisionLayer::Fighter,
                 ]),
         )*/
-        .insert_bundle(MaterialMesh2dBundle {
+        .insert(MaterialMesh2dBundle {
             mesh: meshes.add(create_fighter_mesh()).into(),
             transform: Transform::default()
                 .with_scale(Vec3::splat(50.0))
@@ -448,12 +450,13 @@ fn spawn_fighter(
             )),
             ..default()
         })
+        //.insert(RigidBody::Dynamic)
         // .insert(settings.ccd())
         .with_children(|parent| {
             let jet = Quad::new(Vec2::new(0.3, 0.20));
             let handle = meshes.add(Mesh::from(jet));
             parent
-                .spawn_bundle(ColorMesh2dBundle {
+                .spawn(ColorMesh2dBundle {
                     mesh: handle.into(),
                     material: materials.add(ColorMaterial::from(Color::rgba(
                         1.0, 1.0, 1.0, 1.0,
