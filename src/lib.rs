@@ -2,7 +2,6 @@
 #[cfg(feature = "python")]
 pub mod python;
 
-use bevy_rapier2d::prelude::*;
 use bevy::app::AppExit;
 use bevy::app::ScheduleRunnerSettings;
 use bevy::asset::AssetPlugin;
@@ -14,6 +13,7 @@ use bevy::sprite::Material2dPlugin;
 use bevy::sprite::MaterialMesh2dBundle;
 use bevy::time::FixedTimestep;
 use bevy::{log, prelude::*};
+use bevy_rapier2d::prelude::*;
 // use ccd::Ccd;
 use entity_gym_rs::agent::{
     self, Agent, AgentOps, Obs, RogueNetAsset, RogueNetAssetLoader,
@@ -22,8 +22,8 @@ use entity_gym_rs::agent::{
 // use heron::PhysicsSteps;
 use rand::rngs::SmallRng;
 use rand::{Rng, SeedableRng};
-use std::time::Duration;
 use std::ops::{Deref, DerefMut};
+use std::time::Duration;
 
 #[cfg(feature = "python")]
 use python::Config;
@@ -114,12 +114,12 @@ pub fn base_app(
 ) -> App {
     let mut main_system = SystemSet::new()
         //.with_system(ai)
-        //.with_system(check_boundary_collision)
+        .with_system(check_boundary_collision)
         .with_system(spawn_asteroids)
         // .with_system(detect_collisions)
         .with_system(expire_bullets)
-        //.with_system(fighter_actions.after(ai).after(keyboard_events))
-        //.with_system(cooldowns.after(fighter_actions))
+        .with_system(fighter_actions.after(ai).after(keyboard_events))
+        .with_system(cooldowns.after(fighter_actions))
         .with_system(respawn.after(cooldowns))
         .with_system(reset.after(respawn));
     if settings.fixed_timestep {
@@ -129,7 +129,7 @@ pub fn base_app(
     }
     let mut app = App::new();
     app//.add_plugin(PhysicsPlugin::default())
-        // .add_plugin(ccd::CcdPhysicsPlugin)
+        //.add_plugin(ccd::CcdPhysicsPlugin)
         .add_plugin(RapierPhysicsPlugin::<NoUserData>::pixels_per_meter(1.0))
         .insert_resource(RapierConfiguration {
             gravity: Vect::new(0.0, 0.0),
@@ -181,7 +181,7 @@ pub fn app(settings: Settings, agents: Vec<Box<dyn Agent>>) -> App {
         app.insert_resource(ScheduleRunnerSettings::run_loop(
             Duration::from_secs_f64(0.0),
         ))
-        /* .insert_resource(PhysicsSteps::every_frame(Duration::from_secs_f64(
+        /*.insert_resource(PhysicsSteps::every_frame(Duration::from_secs_f64(
             settings.timestep_secs() as f64,
         )))*/
         .add_plugins(MinimalPlugins)
@@ -195,15 +195,15 @@ pub fn app(settings: Settings, agents: Vec<Box<dyn Agent>>) -> App {
         // }
     } else {
         app.add_plugins(DefaultPlugins.set(WindowPlugin {
-        window: WindowDescriptor {
-                    title: LAUNCHER_TITLE.to_string(),
-                    width: 2000.0,
-                    height: 1000.0,
-                    canvas: Some("#bevy".to_string()),
-                    fit_canvas_to_parent: true,
-                    ..default()
-                },
+            window: WindowDescriptor {
+                title: LAUNCHER_TITLE.to_string(),
+                width: 2000.0,
+                height: 1000.0,
+                canvas: Some("#bevy".to_string()),
+                fit_canvas_to_parent: true,
                 ..default()
+            },
+            ..default()
         }))
         /* .insert_resource(PhysicsSteps::every_frame(Duration::from_secs_f64(
             settings.timestep_secs() as f64,
@@ -404,15 +404,14 @@ fn spawn_fighter(
         settings.opponent_stats_multiplier
     };
     let entity = cmd
-        .spawn(
-        Fighter {
+        .spawn(Fighter {
             max_velocity: 1000.0 * stats_multiplier,
-            acceleration: 4000.0 * stats_multiplier,
-            deceleration: 2000.0 * stats_multiplier,
+            acceleration: 20000.0 * stats_multiplier,
+            deceleration: 20000.0 * stats_multiplier,
             drag_exp: 2.0,
             drag_coef: 0.05,
-            turn_speed: 10.0 * stats_multiplier,
-            bullet_speed: 1500.0 * stats_multiplier,
+            turn_speed: 8.0 * stats_multiplier,
+            bullet_speed: 1000.0 * stats_multiplier,
             bullet_lifetime: 45,
             bullet_cooldown: 12,
             remaining_bullet_cooldown: 0,
@@ -424,15 +423,26 @@ fn spawn_fighter(
             density: 10000.0,
             friction: 0.5,
         })*/
-        .insert(Collider::convex_hull(
-            &[
-                1.0 * Vect::new(0.0, 0.4),
-                1.0 * Vect::new(-0.3, -0.4),
-                1.0 * Vect::new(0.3, -0.4),
-            ],
-        ).unwrap())
-        //.insert(Velocity::from_linear(Vec3::new(0.0, 0.0, 0.0)))
-        //.insert(Acceleration::from_linear(Vec3::new(0.0, 0.0, 0.0)))
+        .insert(
+            Collider::convex_hull(&[
+                Vect::new(0.0, 0.4),
+                Vect::new(-0.3, -0.4),
+                Vect::new(0.3, -0.4),
+            ])
+            .unwrap(),
+        )
+        .insert(Velocity {
+            linvel: Vec2::new(0.0, 0.0),
+            angvel: 0.0,
+        })
+        .insert(ExternalForce {
+            force: Vec2::new(0.0, 0.0),
+            torque: 0.0,
+        })
+        .insert(ExternalImpulse {
+            impulse: Vec2::new(0.0, 0.0),
+            torque_impulse: 0.0,
+        })
         //.insert(RotationConstraints::lock())
         .insert(CollisionType::Fighter)
         /* .insert(
@@ -526,46 +536,45 @@ fn spawn_bullet(
     meshes: &mut ResMut<Assets<Mesh>>,
     materials: &mut ResMut<Assets<ColorMaterial>>,
     position: Vec3,
-    velocity: Vec3,
+    velocity: Vec2,
     lifetime: u32,
     player_id: usize,
 ) {
     let radius = 3.0;
     let circle = Circle::new(radius);
     let handle = meshes.add(circle.into());
-    cmd.spawn(
-        Bullet {
-            remaining_lifetime: lifetime as i32,
-        })
-        // .insert(RigidBody::Dynamic)
-        /*/.insert(PhysicMaterial {
-            restitution: 1.0,
-            density: 2000.0,
-            friction: 0.5,
-        })*/
-        // .insert(CollisionShape::Sphere { radius })
-        // .insert(Velocity::from_linear(velocity))
-        // .insert(RotationConstraints::lock())
-        .insert(CollisionType::Bullet)
-        /*.insert(
-            CollisionLayers::none()
-                .with_group(CollisionLayer::Bullet)
-                .with_masks(&[
-                    CollisionLayer::Asteroid,
-                    CollisionLayer::Fighter,
-                ]),
-        )*/
-        // .insert(settings.ccd())
-        .insert_bundle(MaterialMesh2dBundle {
-            mesh: handle.into(),
-            transform: Transform::default()
-                .with_scale(Vec3::splat(1.0))
-                .with_translation(position),
-            material: materials.add(ColorMaterial::from(
-                BULLET_COLORS[player_id % BULLET_COLORS.len()],
-            )),
-            ..default()
-        });
+    cmd.spawn(Bullet {
+        remaining_lifetime: lifetime as i32,
+    })
+    // .insert(RigidBody::Dynamic)
+    /*/.insert(PhysicMaterial {
+        restitution: 1.0,
+        density: 2000.0,
+        friction: 0.5,
+    })*/
+    // .insert(CollisionShape::Sphere { radius })
+    // .insert(Velocity::from_linear(velocity))
+    // .insert(RotationConstraints::lock())
+    .insert(CollisionType::Bullet)
+    /*.insert(
+        CollisionLayers::none()
+            .with_group(CollisionLayer::Bullet)
+            .with_masks(&[
+                CollisionLayer::Asteroid,
+                CollisionLayer::Fighter,
+            ]),
+    )*/
+    // .insert(settings.ccd())
+    .insert(MaterialMesh2dBundle {
+        mesh: handle.into(),
+        transform: Transform::default()
+            .with_scale(Vec3::splat(1.0))
+            .with_translation(position),
+        material: materials.add(ColorMaterial::from(
+            BULLET_COLORS[player_id % BULLET_COLORS.len()],
+        )),
+        ..default()
+    });
 }
 
 /*
@@ -719,30 +728,30 @@ fn remove_fighter(
     }
 }
 
-/*fn check_boundary_collision(
+fn check_boundary_collision(
     mut fighter: Query<(&mut Velocity, &Transform, &mut Fighter)>,
 ) {
     for (mut velocity, transform, fighter) in fighter.iter_mut() {
         let x = transform.translation.x;
         let y = transform.translation.y;
         if x > 1000.0 {
-            velocity.linear.x = -fighter.max_velocity;
+            velocity.linvel.x = -velocity.linvel.x.abs();
         } else if x < -1000.0 {
-            velocity.linear.x = fighter.max_velocity;
+            velocity.linvel.x = velocity.linvel.x.abs();
         }
         if y > 500.0 {
-            velocity.linear.y = -fighter.max_velocity;
+            velocity.linvel.y = -velocity.linvel.y.abs();
         } else if y < -500.0 {
-            velocity.linear.y = fighter.max_velocity;
+            velocity.linvel.y = velocity.linvel.y.abs();
         }
         // Clamp velocity
-        let speed = velocity.linear.length();
+        let speed = velocity.linvel.length();
         if speed > fighter.max_velocity {
-            velocity.linear =
-                velocity.linear.normalize() * fighter.max_velocity;
+            velocity.linvel =
+                velocity.linvel.normalize() * fighter.max_velocity;
         }
     }
-}*/
+}
 
 fn spawn_asteroids(
     settings: Res<Settings>,
@@ -772,48 +781,47 @@ fn spawn_asteroids(
         let size: f32 = rng.gen_range(20.0..60.0) * rng.gen_range(20.0..60.0);
         let circle = Circle::new(size.sqrt());
         let handle = meshes.add(circle.into());
-        cmd.spawn(
-            Asteroid {
-                health: 5.0,
-                radius: size.sqrt(),
-            })
-            //.insert(RigidBody::Dynamic)
-            /*.insert(PhysicMaterial {
-                restitution: 1.0,
-                density: size,
-                friction: 0.5,
-            })*/
-            /* .insert(CollisionShape::Sphere {
-                radius: size.sqrt(),
-            })*/
-            /*insert(Velocity::from_linear(
-                speed * Vec3::new(direction.cos(), direction.sin(), 0.0),
-            ))*/
-            //.insert(RotationConstraints::lock())
-            .insert(CollisionType::Asteroid)
-            // .insert(settings.ccd())
-            /*.insert(
-                CollisionLayers::none()
-                    .with_group(CollisionLayer::Asteroid)
-                    .with_masks(&[
-                        CollisionLayer::Asteroid,
-                        CollisionLayer::Bullet,
-                        CollisionLayer::Fighter,
-                    ]),
-            )*/
-            .insert_bundle(ColorMesh2dBundle {
-                mesh: handle.into(),
-                transform: Transform::default()
-                    .with_scale(Vec3::splat(1.0))
-                    .with_translation(Vec3::new(
-                        1500.0 * spawn_angle.cos(),
-                        750.0 * spawn_angle.sin(),
-                        1.0,
-                    )),
-                material: materials
-                    .add(ColorMaterial::from(Color::rgba(0.6, 0.5, 0.5, 1.0))),
-                ..default()
-            });
+        cmd.spawn(Asteroid {
+            health: 5.0,
+            radius: size.sqrt(),
+        })
+        //.insert(RigidBody::Dynamic)
+        /*.insert(PhysicMaterial {
+            restitution: 1.0,
+            density: size,
+            friction: 0.5,
+        })*/
+        /* .insert(CollisionShape::Sphere {
+            radius: size.sqrt(),
+        })*/
+        /*insert(Velocity::from_linear(
+            speed * Vec3::new(direction.cos(), direction.sin(), 0.0),
+        ))*/
+        //.insert(RotationConstraints::lock())
+        .insert(CollisionType::Asteroid)
+        // .insert(settings.ccd())
+        /*.insert(
+            CollisionLayers::none()
+                .with_group(CollisionLayer::Asteroid)
+                .with_masks(&[
+                    CollisionLayer::Asteroid,
+                    CollisionLayer::Bullet,
+                    CollisionLayer::Fighter,
+                ]),
+        )*/
+        .insert(ColorMesh2dBundle {
+            mesh: handle.into(),
+            transform: Transform::default()
+                .with_scale(Vec3::splat(1.0))
+                .with_translation(Vec3::new(
+                    1500.0 * spawn_angle.cos(),
+                    750.0 * spawn_angle.sin(),
+                    1.0,
+                )),
+            material: materials
+                .add(ColorMaterial::from(Color::rgba(0.6, 0.5, 0.5, 1.0))),
+            ..default()
+        });
         count += 1;
     }
 }
@@ -911,7 +919,7 @@ fn cooldowns(
     }
 }
 
-/*#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments)]
 fn ai(
     mut action_events: EventWriter<(act::FighterAction, Entity)>,
     mut players: NonSendMut<Players>,
@@ -941,7 +949,7 @@ fn ai(
         for id in &*ids {
             if let Ok((fighter, transform, velocity)) = fighter.get(*id) {
                 let pos = transform.translation;
-                let vel = velocity.linear;
+                let vel = velocity.linvel;
                 let (direction_x, direction_y) =
                     transform_to_direction(transform);
                 actor_entities.push(entity::Fighter {
@@ -968,7 +976,7 @@ fn ai(
             .entities(fighter.iter().filter(|(f, _, _)| f.player_id != i).map(
                 |(fighter, transform, velocity)| {
                     let pos = transform.translation;
-                    let vel = velocity.linear;
+                    let vel = velocity.linvel;
                     let (direction_x, direction_y) =
                         transform_to_direction(transform);
                     entity::EnemyFighter {
@@ -987,7 +995,7 @@ fn ai(
             .entities(asteroids.iter().map(
                 |(asteroid, transform, velocity)| {
                     let pos = transform.translation;
-                    let vel = velocity.linear;
+                    let vel = velocity.linvel;
                     entity::Asteroid {
                         health: asteroid.health,
                         radius: asteroid.radius,
@@ -1000,7 +1008,7 @@ fn ai(
             ))
             .entities(bullets.iter().map(|(bullet, transform, velocity)| {
                 let pos = transform.translation;
-                let vel = velocity.linear;
+                let vel = velocity.linvel;
                 entity::Bullet {
                     x: pos.x,
                     y: pos.y,
@@ -1023,9 +1031,9 @@ fn ai(
             None => exit.send(AppExit),
         }
     }
-}*/
+}
 
-/*#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments)]
 fn fighter_actions(
     mut action_events: EventReader<(act::FighterAction, Entity)>,
     mut cmd: Commands,
@@ -1033,7 +1041,7 @@ fn fighter_actions(
         &mut Fighter,
         &Transform,
         &mut Velocity,
-        &mut Acceleration,
+        &mut ExternalImpulse,
         &Children,
     )>,
     mut jet: Query<&mut Visibility, With<Jet>>,
@@ -1047,11 +1055,11 @@ fn fighter_actions(
         return;
     }
     for (action, id) in action_events.iter() {
-        let (mut fighter, transform, mut velocity, mut acceleration, children) =
+        let (mut fighter, transform, mut vel, mut imp, children) =
             fighter.get_mut(*id).unwrap();
         // Reset rotation and acceleration
-       //  velocity.angular = AxisAngle::new(Vec3::Z, 0.0);
-        acceleration.linear = Vec3::ZERO;
+        imp.impulse = Vec2::new(0.0, 0.0);
+        vel.angvel = 0.0;
 
         let rot = transform.rotation.xyz();
         let mut angle = transform.rotation.to_axis_angle().1;
@@ -1060,35 +1068,25 @@ fn fighter_actions(
         }
         let angle2 = angle + std::f32::consts::PI / 2.0;
 
-        match action.turn {
-            act::Turn::Left => {
-                //velocity.angular = AxisAngle::new(Vec3::Z, fighter.turn_speed);
-            }
-            act::Turn::QuarterLeft => {
-                // velocity.angular =
-                //     AxisAngle::new(Vec3::Z, fighter.turn_speed * 0.25);
-            }
-            act::Turn::Right => {
-                //velocity.angular = AxisAngle::new(Vec3::Z, -fighter.turn_speed);
-            }
-            act::Turn::QuarterRight => {
-                // velocity.angular =
-                //     AxisAngle::new(Vec3::Z, -fighter.turn_speed * 0.25);
-            }
-            act::Turn::None => {}
-        }
+        vel.angvel = match action.turn {
+            act::Turn::Left => fighter.turn_speed,
+            act::Turn::QuarterLeft => fighter.turn_speed * 0.25,
+            act::Turn::Right => -fighter.turn_speed,
+            act::Turn::QuarterRight => -fighter.turn_speed * 0.25,
+            act::Turn::None => 0.0,
+        };
         let mut jet = jet.get_mut(*children.first().unwrap()).unwrap();
-        let speed = velocity.linear.length();
+        let speed = vel.linvel.length();
         match action.thrust {
             act::Thrust::On => {
-                let thrust = Vec3::new(angle2.cos(), angle2.sin(), 0.0)
+                let thrust = Vec2::new(angle2.cos(), angle2.sin())
                     * fighter.acceleration;
-                acceleration.linear = thrust;
+                imp.impulse = thrust;
                 jet.is_visible = true;
             }
             act::Thrust::Off => {
                 // Should integrate here rather than just multiplying by interval, whatever
-                velocity.linear *= 1.0
+                vel.linvel *= 1.0
                     - fighter.drag_coef
                         * (speed / fighter.max_velocity).powf(fighter.drag_exp)
                         * settings.action_interval as f32;
@@ -1099,10 +1097,10 @@ fn fighter_actions(
                     < fighter.deceleration * settings.action_interval as f32
                         / settings.frame_rate
                 {
-                    velocity.linear = Vec3::ZERO;
+                    vel.linvel = Vec2::ZERO;
                 } else {
-                    acceleration.linear =
-                        -velocity.linear.normalize() * fighter.deceleration;
+                    imp.impulse =
+                        -vel.linvel.normalize() * fighter.deceleration;
                 }
             }
         }
@@ -1117,8 +1115,8 @@ fn fighter_actions(
                     &mut materials,
                     transform.translation
                         + 24.0 * Vec3::new(angle2.cos(), angle2.sin(), 0.0),
-                    velocity.linear
-                        + Vec3::new(angle2.cos(), angle2.sin(), 0.0)
+                    imp.impulse
+                        + Vec2::new(angle2.cos(), angle2.sin())
                             * fighter.bullet_speed,
                     fighter.bullet_lifetime,
                     fighter.player_id,
@@ -1128,7 +1126,7 @@ fn fighter_actions(
             }
         }
     }
-}*/
+}
 
 fn load_opponent_policy(
     settings: Res<Settings>,
@@ -1175,7 +1173,7 @@ fn spawn_highscore_text(
         horizontal: HorizontalAlign::Left,
     };
     commands
-        .spawn_bundle(Text2dBundle {
+        .spawn(Text2dBundle {
             text: Text::from_section("Score: 0\nBest: 0", text_style)
                 .with_alignment(text_alignment),
             transform: Transform::from_translation(Vec3::new(
@@ -1376,7 +1374,6 @@ impl Default for Settings {
         }
     }
 }
-
 
 impl Deref for RngState {
     type Target = SmallRng;
