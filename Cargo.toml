@@ -30,12 +30,11 @@ lto = true
 debug = true
 
 [dependencies]
-bevy = "0.8.1"
+bevy = "0.9"
 image = "0.24.3"
-winit = "0.26.1"
-heron = { version = "4", features = ["2d"] }
+winit = "0.27"
 rand = { version = "0.8.5", features = ["small_rng"] }
-entity-gym-rs = { version = "0.7.1", features = ["bevy"] }
+entity-gym-rs = { version = "0.8", features = ["bevy"] }
 # entity-gym-rs = { path = "../entity-gym-rs" }
 pyo3 = { version = "0.15", features = ["extension-module"], optional = true }
 clap = { version = "3.1.7", features = ["derive"] }

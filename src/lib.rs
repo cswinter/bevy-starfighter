@@ -1,4 +1,4 @@
-mod ccd;
+// mod ccd;
 #[cfg(feature = "python")]
 pub mod python;
 
@@ -13,15 +13,16 @@ use bevy::sprite::Material2dPlugin;
 use bevy::sprite::MaterialMesh2dBundle;
 use bevy::time::FixedTimestep;
 use bevy::{log, prelude::*};
-use ccd::Ccd;
+// use ccd::Ccd;
 use entity_gym_rs::agent::{
     self, Agent, AgentOps, Obs, RogueNetAsset, RogueNetAssetLoader,
 };
-use heron::prelude::*;
-use heron::PhysicsSteps;
+// use heron::prelude::*;
+// use heron::PhysicsSteps;
 use rand::rngs::SmallRng;
 use rand::{Rng, SeedableRng};
 use std::time::Duration;
+use std::ops::{Deref, DerefMut};
 
 #[cfg(feature = "python")]
 use python::Config;
@@ -33,16 +34,17 @@ const FIGHTER_COLORS: [Color; 2] =
 const BULLET_COLORS: [Color; 2] =
     [Color::rgb(0.8, 0.8, 1.0), Color::rgb(1.0, 0.7, 0.7)];
 
+#[derive(Resource)]
 struct OpponentHandle(Option<Handle<RogueNetAsset>>);
 
-#[derive(PhysicsLayer)]
+// #[derive(PhysicsLayer)]
 enum CollisionLayer {
     Fighter,
     Asteroid,
     Bullet,
 }
 
-#[derive(Default, Debug)]
+#[derive(Default, Debug, Resource)]
 struct Stats {
     bullets_fired: usize,
     timesteps: usize,
@@ -62,7 +64,7 @@ impl Stats {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Resource)]
 pub struct Settings {
     pub seed: u64,
     pub frameskip: u32,
@@ -96,13 +98,13 @@ impl Settings {
         1.0 / self.frame_rate * self.frameskip as f32
     }
 
-    fn ccd(&self) -> Ccd {
-        if self.continuous_collision_detection {
-            Ccd::Enabled
-        } else {
-            Ccd::Disabled
-        }
-    }
+    // fn ccd(&self) -> Ccd {
+    //     if self.continuous_collision_detection {
+    //         Ccd::Enabled
+    //     } else {
+    //         Ccd::Disabled
+    //     }
+    // }
 }
 
 pub fn base_app(
@@ -110,13 +112,13 @@ pub fn base_app(
     agents: Vec<Option<Box<dyn Agent>>>,
 ) -> App {
     let mut main_system = SystemSet::new()
-        .with_system(ai)
-        .with_system(check_boundary_collision)
+        //.with_system(ai)
+        //.with_system(check_boundary_collision)
         .with_system(spawn_asteroids)
-        .with_system(detect_collisions)
+        // .with_system(detect_collisions)
         .with_system(expire_bullets)
-        .with_system(fighter_actions.after(ai).after(keyboard_events))
-        .with_system(cooldowns.after(fighter_actions))
+        //.with_system(fighter_actions.after(ai).after(keyboard_events))
+        //.with_system(cooldowns.after(fighter_actions))
         .with_system(respawn.after(cooldowns))
         .with_system(reset.after(respawn));
     if settings.fixed_timestep {
@@ -125,10 +127,10 @@ pub fn base_app(
         ));
     }
     let mut app = App::new();
-    app.add_plugin(PhysicsPlugin::default())
-        .add_plugin(ccd::CcdPhysicsPlugin)
+    app//.add_plugin(PhysicsPlugin::default())
+        // .add_plugin(ccd::CcdPhysicsPlugin)
         .insert_resource(OpponentHandle(None))
-        .insert_resource(SmallRng::seed_from_u64(settings.seed))
+        .insert_resource(RngState(SmallRng::seed_from_u64(settings.seed)))
         .insert_resource(ClearColor(Color::rgb(0.0, 0.0, 0.0)))
         .insert_resource(RemainingTime(2700))
         .insert_resource(Stats::default())
@@ -173,32 +175,34 @@ pub fn app(settings: Settings, agents: Vec<Box<dyn Agent>>) -> App {
         app.insert_resource(ScheduleRunnerSettings::run_loop(
             Duration::from_secs_f64(0.0),
         ))
-        .insert_resource(PhysicsSteps::every_frame(Duration::from_secs_f64(
+        /* .insert_resource(PhysicsSteps::every_frame(Duration::from_secs_f64(
             settings.timestep_secs() as f64,
-        )))
+        )))*/
         .add_plugins(MinimalPlugins)
         .add_plugin(AssetPlugin::default())
         .add_plugin(MeshPlugin)
         .add_plugin(MaterialPlugin::<StandardMaterial>::default())
         .add_plugin(Material2dPlugin::<ColorMaterial>::default())
         .add_startup_system(setup);
-        if settings.enable_logging {
-            app.add_plugin(bevy::log::LogPlugin::default());
-        }
+        // if settings.enable_logging {
+        //     app.add_plugin(bevy::log::LogPlugin::default());
+        // }
     } else {
-        app.insert_resource(WindowDescriptor {
-            title: LAUNCHER_TITLE.to_string(),
-            width: 2000.0,
-            height: 1000.0,
-            canvas: Some("#bevy".to_string()),
-            fit_canvas_to_parent: true,
-            ..Default::default()
-        })
-        .insert_resource(PhysicsSteps::every_frame(Duration::from_secs_f64(
+        app.add_plugins(DefaultPlugins.set(WindowPlugin {
+        window: WindowDescriptor {
+                    title: LAUNCHER_TITLE.to_string(),
+                    width: 2000.0,
+                    height: 1000.0,
+                    canvas: Some("#bevy".to_string()),
+                    fit_canvas_to_parent: true,
+                    ..default()
+                },
+                ..default()
+        }))
+        /* .insert_resource(PhysicsSteps::every_frame(Duration::from_secs_f64(
             settings.timestep_secs() as f64,
-        )))
+        )))*/
         .add_system(keyboard_events)
-        .add_plugins(DefaultPlugins)
         .add_startup_system(setup);
     }
     app.add_asset::<RogueNetAsset>()
@@ -351,7 +355,7 @@ fn setup(
     // Spawn rectangular bounds
     let bounds = Quad::new(Vec2::new(2000.0, 1000.0));
     let handle = meshes.add(bounds.into());
-    cmd.spawn().insert_bundle(ColorMesh2dBundle {
+    cmd.spawn(ColorMesh2dBundle {
         mesh: handle.into(),
         transform: Transform::default(),
         material: materials
@@ -393,8 +397,8 @@ fn spawn_fighter(
         settings.opponent_stats_multiplier
     };
     let entity = cmd
-        .spawn()
-        .insert(Fighter {
+        .spawn(
+        Fighter {
             max_velocity: 1000.0 * stats_multiplier,
             acceleration: 4000.0 * stats_multiplier,
             deceleration: 2000.0 * stats_multiplier,
@@ -407,25 +411,25 @@ fn spawn_fighter(
             remaining_bullet_cooldown: 0,
             player_id,
         })
-        .insert(RigidBody::Dynamic)
-        .insert(PhysicMaterial {
+        // .insert(RigidBody::Dynamic)
+        /* .insert(PhysicMaterial {
             restitution: 1.0,
             density: 10000.0,
             friction: 0.5,
-        })
-        .insert(CollisionShape::ConvexHull {
+        })*/
+        /* .insert(CollisionShape::ConvexHull {
             points: vec![
                 50.0 * Vec3::new(0.0, 0.4, 0.0),
                 50.0 * Vec3::new(-0.3, -0.4, 0.0),
                 50.0 * Vec3::new(0.3, -0.4, 0.0),
             ],
             border_radius: None,
-        })
-        .insert(Velocity::from_linear(Vec3::new(0.0, 0.0, 0.0)))
-        .insert(Acceleration::from_linear(Vec3::new(0.0, 0.0, 0.0)))
-        .insert(RotationConstraints::lock())
+        })*/
+        //.insert(Velocity::from_linear(Vec3::new(0.0, 0.0, 0.0)))
+        //.insert(Acceleration::from_linear(Vec3::new(0.0, 0.0, 0.0)))
+        //.insert(RotationConstraints::lock())
         .insert(CollisionType::Fighter)
-        .insert(
+        /* .insert(
             CollisionLayers::none()
                 .with_group(CollisionLayer::Fighter)
                 .with_masks(&[
@@ -433,7 +437,7 @@ fn spawn_fighter(
                     CollisionLayer::Bullet,
                     CollisionLayer::Fighter,
                 ]),
-        )
+        )*/
         .insert_bundle(MaterialMesh2dBundle {
             mesh: meshes.add(create_fighter_mesh()).into(),
             transform: Transform::default()
@@ -444,7 +448,7 @@ fn spawn_fighter(
             )),
             ..default()
         })
-        .insert(settings.ccd())
+        // .insert(settings.ccd())
         .with_children(|parent| {
             let jet = Quad::new(Vec2::new(0.3, 0.20));
             let handle = meshes.add(Mesh::from(jet));
@@ -471,7 +475,7 @@ fn respawn(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
     mut players: NonSendMut<Players>,
-    mut rng: ResMut<SmallRng>,
+    mut rng: ResMut<RngState>,
 ) {
     for (i, player) in players.0.iter_mut().enumerate() {
         let target_count = if i == 0 {
@@ -522,29 +526,29 @@ fn spawn_bullet(
     let radius = 3.0;
     let circle = Circle::new(radius);
     let handle = meshes.add(circle.into());
-    cmd.spawn()
-        .insert(Bullet {
+    cmd.spawn(
+        Bullet {
             remaining_lifetime: lifetime as i32,
         })
-        .insert(RigidBody::Dynamic)
-        .insert(PhysicMaterial {
+        // .insert(RigidBody::Dynamic)
+        /*/.insert(PhysicMaterial {
             restitution: 1.0,
             density: 2000.0,
             friction: 0.5,
-        })
-        .insert(CollisionShape::Sphere { radius })
-        .insert(Velocity::from_linear(velocity))
-        .insert(RotationConstraints::lock())
+        })*/
+        // .insert(CollisionShape::Sphere { radius })
+        // .insert(Velocity::from_linear(velocity))
+        // .insert(RotationConstraints::lock())
         .insert(CollisionType::Bullet)
-        .insert(
+        /*.insert(
             CollisionLayers::none()
                 .with_group(CollisionLayer::Bullet)
                 .with_masks(&[
                     CollisionLayer::Asteroid,
                     CollisionLayer::Fighter,
                 ]),
-        )
-        .insert(settings.ccd())
+        )*/
+        // .insert(settings.ccd())
         .insert_bundle(MaterialMesh2dBundle {
             mesh: handle.into(),
             transform: Transform::default()
@@ -557,6 +561,7 @@ fn spawn_bullet(
         });
 }
 
+/*
 #[allow(clippy::too_many_arguments)]
 fn detect_collisions(
     mut cmd: Commands,
@@ -650,6 +655,7 @@ fn detect_collisions(
         }
     }
 }
+*/
 
 fn handle_bullet_asteroid_collision(
     cmd: &mut Commands,
@@ -706,7 +712,7 @@ fn remove_fighter(
     }
 }
 
-fn check_boundary_collision(
+/*fn check_boundary_collision(
     mut fighter: Query<(&mut Velocity, &Transform, &mut Fighter)>,
 ) {
     for (mut velocity, transform, fighter) in fighter.iter_mut() {
@@ -729,7 +735,7 @@ fn check_boundary_collision(
                 velocity.linear.normalize() * fighter.max_velocity;
         }
     }
-}
+}*/
 
 fn spawn_asteroids(
     settings: Res<Settings>,
@@ -737,7 +743,7 @@ fn spawn_asteroids(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
     mut asteroids: Query<(Entity, &mut Asteroid, &mut Transform)>,
-    mut rng: ResMut<SmallRng>,
+    mut rng: ResMut<RngState>,
 ) {
     let mut count = 0;
     for asteroid in asteroids.iter_mut() {
@@ -759,27 +765,27 @@ fn spawn_asteroids(
         let size: f32 = rng.gen_range(20.0..60.0) * rng.gen_range(20.0..60.0);
         let circle = Circle::new(size.sqrt());
         let handle = meshes.add(circle.into());
-        cmd.spawn()
-            .insert(Asteroid {
+        cmd.spawn(
+            Asteroid {
                 health: 5.0,
                 radius: size.sqrt(),
             })
-            .insert(RigidBody::Dynamic)
-            .insert(PhysicMaterial {
+            //.insert(RigidBody::Dynamic)
+            /*.insert(PhysicMaterial {
                 restitution: 1.0,
                 density: size,
                 friction: 0.5,
-            })
-            .insert(CollisionShape::Sphere {
+            })*/
+            /* .insert(CollisionShape::Sphere {
                 radius: size.sqrt(),
-            })
-            .insert(Velocity::from_linear(
+            })*/
+            /*insert(Velocity::from_linear(
                 speed * Vec3::new(direction.cos(), direction.sin(), 0.0),
-            ))
-            .insert(RotationConstraints::lock())
+            ))*/
+            //.insert(RotationConstraints::lock())
             .insert(CollisionType::Asteroid)
-            .insert(settings.ccd())
-            .insert(
+            // .insert(settings.ccd())
+            /*.insert(
                 CollisionLayers::none()
                     .with_group(CollisionLayer::Asteroid)
                     .with_masks(&[
@@ -787,7 +793,7 @@ fn spawn_asteroids(
                         CollisionLayer::Bullet,
                         CollisionLayer::Fighter,
                     ]),
-            )
+            )*/
             .insert_bundle(ColorMesh2dBundle {
                 mesh: handle.into(),
                 transform: Transform::default()
@@ -898,7 +904,7 @@ fn cooldowns(
     }
 }
 
-#[allow(clippy::too_many_arguments)]
+/*#[allow(clippy::too_many_arguments)]
 fn ai(
     mut action_events: EventWriter<(act::FighterAction, Entity)>,
     mut players: NonSendMut<Players>,
@@ -1010,9 +1016,9 @@ fn ai(
             None => exit.send(AppExit),
         }
     }
-}
+}*/
 
-#[allow(clippy::too_many_arguments)]
+/*#[allow(clippy::too_many_arguments)]
 fn fighter_actions(
     mut action_events: EventReader<(act::FighterAction, Entity)>,
     mut cmd: Commands,
@@ -1037,7 +1043,7 @@ fn fighter_actions(
         let (mut fighter, transform, mut velocity, mut acceleration, children) =
             fighter.get_mut(*id).unwrap();
         // Reset rotation and acceleration
-        velocity.angular = AxisAngle::new(Vec3::Z, 0.0);
+       //  velocity.angular = AxisAngle::new(Vec3::Z, 0.0);
         acceleration.linear = Vec3::ZERO;
 
         let rot = transform.rotation.xyz();
@@ -1049,18 +1055,18 @@ fn fighter_actions(
 
         match action.turn {
             act::Turn::Left => {
-                velocity.angular = AxisAngle::new(Vec3::Z, fighter.turn_speed);
+                //velocity.angular = AxisAngle::new(Vec3::Z, fighter.turn_speed);
             }
             act::Turn::QuarterLeft => {
-                velocity.angular =
-                    AxisAngle::new(Vec3::Z, fighter.turn_speed * 0.25);
+                // velocity.angular =
+                //     AxisAngle::new(Vec3::Z, fighter.turn_speed * 0.25);
             }
             act::Turn::Right => {
-                velocity.angular = AxisAngle::new(Vec3::Z, -fighter.turn_speed);
+                //velocity.angular = AxisAngle::new(Vec3::Z, -fighter.turn_speed);
             }
             act::Turn::QuarterRight => {
-                velocity.angular =
-                    AxisAngle::new(Vec3::Z, -fighter.turn_speed * 0.25);
+                // velocity.angular =
+                //     AxisAngle::new(Vec3::Z, -fighter.turn_speed * 0.25);
             }
             act::Turn::None => {}
         }
@@ -1115,7 +1121,7 @@ fn fighter_actions(
             }
         }
     }
-}
+}*/
 
 fn load_opponent_policy(
     settings: Res<Settings>,
@@ -1223,7 +1229,11 @@ enum CollisionType {
 
 struct GameOver;
 
+#[derive(Resource)]
 struct RemainingTime(i32);
+
+#[derive(Resource)]
+struct RngState(SmallRng);
 
 #[derive(Debug)]
 struct Players(Vec<Player>);
@@ -1357,5 +1367,20 @@ impl Default for Settings {
             ai_action_interval: None,
             opponent_policy: None,
         }
+    }
+}
+
+
+impl Deref for RngState {
+    type Target = SmallRng;
+
+    fn deref(&self) -> &SmallRng {
+        &self.0
+    }
+}
+
+impl DerefMut for RngState {
+    fn deref_mut(&mut self) -> &mut SmallRng {
+        &mut self.0
     }
 }
