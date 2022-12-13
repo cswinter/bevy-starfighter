@@ -15,7 +15,7 @@ entity-gym-rs = "0.8"
 ragged-buffer = "0.3.8"
 
 [features]
-python = ["entity-gym-rs/python", "ragged-buffer/python", "bevy-dogfight-ai/python"]
+python = ["entity-gym-rs/python", "ragged-buffer/python", "bevy-starfighter/python"]
 
 [profile.release]
 debug = true
