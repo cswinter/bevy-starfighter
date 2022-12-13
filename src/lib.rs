@@ -76,6 +76,7 @@ pub struct Settings {
     /// The interval at which the number of opponents is increased by one.
     pub difficulty_ramp: u32,
     pub opponent_policy: Option<String>,
+    pub physics_debug_render: bool,
 }
 
 #[derive(Component)]
@@ -192,9 +193,11 @@ pub fn app(settings: Settings, agents: Vec<Box<dyn Agent>>) -> App {
         /* .insert_resource(PhysicsSteps::every_frame(Duration::from_secs_f64(
             settings.timestep_secs() as f64,
         )))*/
-        .add_plugin(RapierDebugRenderPlugin::default())
         .add_system(keyboard_events)
         .add_startup_system(setup);
+        if settings.physics_debug_render {
+            app.add_plugin(RapierDebugRenderPlugin::default());
+        }
     }
     app.add_asset::<RogueNetAsset>()
         .init_asset_loader::<RogueNetAssetLoader>()
@@ -1312,6 +1315,7 @@ impl Default for Settings {
             difficulty_ramp: 20 * 90, // 20 seconds
             ai_action_interval: None,
             opponent_policy: None,
+            physics_debug_render: false,
         }
     }
 }

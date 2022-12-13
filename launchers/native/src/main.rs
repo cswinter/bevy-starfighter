@@ -38,6 +38,8 @@ struct Args {
     opponent_stats_multiplier: f32,
     #[clap(long)]
     human_player: bool,
+    #[clap(long)]
+    physics_debug_render: bool,
 }
 
 fn set_window_icon(windows: NonSend<WinitWindows>) {
@@ -80,6 +82,7 @@ fn main() {
         human_player: args.human_player,
         difficulty_ramp: 20 * 90,
         opponent_policy: args.agent_asset,
+        physics_debug_render: args.physics_debug_render,
     };
     let mut app = bevy_starfighter::app(settings, vec![]);
 
