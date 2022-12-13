@@ -1,4 +1,3 @@
-// mod ccd;
 #[cfg(feature = "python")]
 pub mod python;
 
@@ -14,12 +13,9 @@ use bevy::sprite::MaterialMesh2dBundle;
 use bevy::time::FixedTimestep;
 use bevy::{log, prelude::*};
 use bevy_rapier2d::prelude::*;
-// use ccd::Ccd;
 use entity_gym_rs::agent::{
     self, Agent, AgentOps, Obs, RogueNetAsset, RogueNetAssetLoader,
 };
-// use heron::prelude::*;
-// use heron::PhysicsSteps;
 use rand::rngs::SmallRng;
 use rand::{Rng, SeedableRng};
 use std::ops::{Deref, DerefMut};
@@ -37,13 +33,6 @@ const BULLET_COLORS: [Color; 2] =
 
 #[derive(Resource)]
 struct OpponentHandle(Option<Handle<RogueNetAsset>>);
-
-// #[derive(PhysicsLayer)]
-enum CollisionLayer {
-    Fighter,
-    Asteroid,
-    Bullet,
-}
 
 #[derive(Default, Debug, Resource)]
 struct Stats {
@@ -99,13 +88,13 @@ impl Settings {
         1.0 / self.frame_rate * self.frameskip as f32
     }
 
-    // fn ccd(&self) -> Ccd {
-    //     if self.continuous_collision_detection {
-    //         Ccd::Enabled
-    //     } else {
-    //         Ccd::Disabled
-    //     }
-    // }
+    fn ccd(&self) -> Ccd {
+        if self.continuous_collision_detection {
+            Ccd::enabled()
+        } else {
+            Ccd::disabled()
+        }
+    }
 }
 
 pub fn base_app(
@@ -113,7 +102,7 @@ pub fn base_app(
     agents: Vec<Option<Box<dyn Agent>>>,
 ) -> App {
     let mut main_system = SystemSet::new()
-        //.with_system(ai)
+        .with_system(ai)
         .with_system(check_boundary_collision)
         .with_system(spawn_asteroids)
         .with_system(detect_collisions)
@@ -128,9 +117,7 @@ pub fn base_app(
         ));
     }
     let mut app = App::new();
-    app//.add_plugin(PhysicsPlugin::default())
-        //.add_plugin(ccd::CcdPhysicsPlugin)
-        .add_plugin(RapierPhysicsPlugin::<NoUserData>::pixels_per_meter(1.0))
+    app.add_plugin(RapierPhysicsPlugin::<NoUserData>::pixels_per_meter(1.0))
         .insert_resource(RapierConfiguration {
             gravity: Vect::new(0.0, 0.0),
             ..default()
@@ -190,9 +177,6 @@ pub fn app(settings: Settings, agents: Vec<Box<dyn Agent>>) -> App {
         .add_plugin(MaterialPlugin::<StandardMaterial>::default())
         .add_plugin(Material2dPlugin::<ColorMaterial>::default())
         .add_startup_system(setup);
-        // if settings.enable_logging {
-        //     app.add_plugin(bevy::log::LogPlugin::default());
-        // }
     } else {
         app.add_plugins(DefaultPlugins.set(WindowPlugin {
             window: WindowDescriptor {
@@ -418,11 +402,6 @@ fn spawn_fighter(
             player_id,
         })
         .insert(RigidBody::Dynamic)
-        /* .insert(PhysicMaterial {
-            restitution: 1.0,
-            density: 10000.0,
-            friction: 0.5,
-        })*/
         .insert(ActiveEvents::COLLISION_EVENTS)
         .insert(
             Collider::convex_hull(&[
@@ -444,17 +423,7 @@ fn spawn_fighter(
             impulse: Vec2::new(0.0, 0.0),
             torque_impulse: 0.0,
         })
-        //.insert(RotationConstraints::lock())
         .insert(CollisionType::Fighter)
-        /* .insert(
-            CollisionLayers::none()
-                .with_group(CollisionLayer::Fighter)
-                .with_masks(&[
-                    CollisionLayer::Asteroid,
-                    CollisionLayer::Bullet,
-                    CollisionLayer::Fighter,
-                ]),
-        )*/
         .insert(MaterialMesh2dBundle {
             mesh: meshes.add(create_fighter_mesh()).into(),
             transform: Transform::default()
@@ -465,8 +434,6 @@ fn spawn_fighter(
             )),
             ..default()
         })
-        //.insert(RigidBody::Dynamic)
-        // .insert(settings.ccd())
         .with_children(|parent| {
             let jet = Quad::new(Vec2::new(0.3, 0.20));
             let handle = meshes.add(Mesh::from(jet));
@@ -548,28 +515,15 @@ fn spawn_bullet(
         remaining_lifetime: lifetime as i32,
     })
     .insert(RigidBody::Dynamic)
-    /*/.insert(PhysicMaterial {
-        restitution: 1.0,
-        density: 2000.0,
-        friction: 0.5,
-    })*/
     .insert(Collider::ball(radius))
     .insert(Velocity {
         linvel: velocity,
         angvel: 0.0,
     })
-    // .insert(RotationConstraints::lock())
+    .insert(LockedAxes::ROTATION_LOCKED)
     .insert(CollisionType::Bullet)
     .insert(ActiveEvents::COLLISION_EVENTS)
-    /*.insert(
-        CollisionLayers::none()
-            .with_group(CollisionLayer::Bullet)
-            .with_masks(&[
-                CollisionLayer::Asteroid,
-                CollisionLayer::Fighter,
-            ]),
-    )*/
-    // .insert(settings.ccd())
+    .insert(settings.ccd())
     .insert(MaterialMesh2dBundle {
         mesh: handle.into(),
         transform: Transform::default()
@@ -789,28 +743,13 @@ fn spawn_asteroids(
             radius: size.sqrt(),
         })
         .insert(RigidBody::Dynamic)
-        /*.insert(PhysicMaterial {
-            restitution: 1.0,
-            density: size,
-            friction: 0.5,
-        })*/
+        .insert(LockedAxes::ROTATION_LOCKED)
         .insert(Collider::ball(size.sqrt()))
         .insert(Velocity {
             linvel: speed * Vec2::new(direction.cos(), direction.sin()),
             angvel: 0.0,
         })
-        //.insert(RotationConstraints::lock())
         .insert(CollisionType::Asteroid)
-        //.insert(settings.ccd())
-        /*.insert(
-            CollisionLayers::none()
-                .with_group(CollisionLayer::Asteroid)
-                .with_masks(&[
-                    CollisionLayer::Asteroid,
-                    CollisionLayer::Bullet,
-                    CollisionLayer::Fighter,
-                ]),
-        )*/
         .insert(ColorMesh2dBundle {
             mesh: handle.into(),
             transform: Transform::default()
