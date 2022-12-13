@@ -116,7 +116,7 @@ pub fn base_app(
         //.with_system(ai)
         .with_system(check_boundary_collision)
         .with_system(spawn_asteroids)
-        // .with_system(detect_collisions)
+        .with_system(detect_collisions)
         .with_system(expire_bullets)
         .with_system(fighter_actions.after(ai).after(keyboard_events))
         .with_system(cooldowns.after(fighter_actions))
@@ -423,6 +423,7 @@ fn spawn_fighter(
             density: 10000.0,
             friction: 0.5,
         })*/
+        .insert(ActiveEvents::COLLISION_EVENTS)
         .insert(
             Collider::convex_hull(&[
                 Vect::new(0.0, 0.4),
@@ -559,6 +560,7 @@ fn spawn_bullet(
     })
     // .insert(RotationConstraints::lock())
     .insert(CollisionType::Bullet)
+    .insert(ActiveEvents::COLLISION_EVENTS)
     /*.insert(
         CollisionLayers::none()
             .with_group(CollisionLayer::Bullet)
@@ -580,7 +582,6 @@ fn spawn_bullet(
     });
 }
 
-/*
 #[allow(clippy::too_many_arguments)]
 fn detect_collisions(
     mut cmd: Commands,
@@ -595,7 +596,7 @@ fn detect_collisions(
 ) {
     //log::info!("{}", stats.timesteps);
     for event in events.iter() {
-        if let CollisionEvent::Started(data1, data2) = event {
+        if let CollisionEvent::Started(data1, data2, _) = *event {
             // log::info!(
             //     "{:?} <-> {:?} collision ({:?}, {:?})",
             //     collision_type.get(data1.rigid_body_entity()).unwrap(),
@@ -604,8 +605,8 @@ fn detect_collisions(
             //     data2.rigid_body_entity()
             // );
             match (
-                collision_type.get(data1.rigid_body_entity()).unwrap(),
-                collision_type.get(data2.rigid_body_entity()).unwrap(),
+                collision_type.get(data1).unwrap(),
+                collision_type.get(data2).unwrap(),
             ) {
                 (CollisionType::Fighter, CollisionType::Asteroid) => {
                     remove_fighter(
@@ -614,7 +615,7 @@ fn detect_collisions(
                         &mut game_over,
                         &mut fighters,
                         &mut players,
-                        data1.rigid_body_entity(),
+                        data1,
                     );
                 }
                 (CollisionType::Asteroid, CollisionType::Fighter) => {
@@ -624,7 +625,7 @@ fn detect_collisions(
                         &mut game_over,
                         &mut fighters,
                         &mut players,
-                        data2.rigid_body_entity(),
+                        data2,
                     );
                 }
                 (CollisionType::Bullet, CollisionType::Asteroid) => {
@@ -633,8 +634,8 @@ fn detect_collisions(
                         &mut asteroids,
                         &mut materials,
                         &mut stats,
-                        data2.rigid_body_entity(),
-                        data1.rigid_body_entity(),
+                        data2,
+                        data1,
                     );
                 }
                 (CollisionType::Asteroid, CollisionType::Bullet) => {
@@ -643,8 +644,8 @@ fn detect_collisions(
                         &mut asteroids,
                         &mut materials,
                         &mut stats,
-                        data1.rigid_body_entity(),
-                        data2.rigid_body_entity(),
+                        data1,
+                        data2,
                     );
                 }
                 (CollisionType::Fighter, CollisionType::Bullet) => {
@@ -654,9 +655,9 @@ fn detect_collisions(
                         &mut game_over,
                         &mut fighters,
                         &mut players,
-                        data1.rigid_body_entity(),
+                        data1,
                     );
-                    cmd.entity(data2.rigid_body_entity()).despawn();
+                    cmd.entity(data2).despawn();
                 }
                 (CollisionType::Bullet, CollisionType::Fighter) => {
                     remove_fighter(
@@ -665,16 +666,15 @@ fn detect_collisions(
                         &mut game_over,
                         &mut fighters,
                         &mut players,
-                        data2.rigid_body_entity(),
+                        data2,
                     );
-                    cmd.entity(data2.rigid_body_entity()).despawn();
+                    cmd.entity(data2).despawn();
                 }
                 _ => {}
             }
         }
     }
 }
-*/
 
 fn handle_bullet_asteroid_collision(
     cmd: &mut Commands,
@@ -788,21 +788,20 @@ fn spawn_asteroids(
             health: 5.0,
             radius: size.sqrt(),
         })
-        //.insert(RigidBody::Dynamic)
+        .insert(RigidBody::Dynamic)
         /*.insert(PhysicMaterial {
             restitution: 1.0,
             density: size,
             friction: 0.5,
         })*/
-        /* .insert(CollisionShape::Sphere {
-            radius: size.sqrt(),
-        })*/
-        /*insert(Velocity::from_linear(
-            speed * Vec3::new(direction.cos(), direction.sin(), 0.0),
-        ))*/
+        .insert(Collider::ball(size.sqrt()))
+        .insert(Velocity {
+            linvel: speed * Vec2::new(direction.cos(), direction.sin()),
+            angvel: 0.0,
+        })
         //.insert(RotationConstraints::lock())
         .insert(CollisionType::Asteroid)
-        // .insert(settings.ccd())
+        //.insert(settings.ccd())
         /*.insert(
             CollisionLayers::none()
                 .with_group(CollisionLayer::Asteroid)
