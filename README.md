@@ -15,13 +15,13 @@ Run locally:
 ```bash
 git clone https://github.com/cswinter/bevy-starfighter.git
 cd bevy-starfighter
-cargo run --release --bin native-launcher -- --agent-asset=versus-relpos-obsfix-128m --ccd --players=2 --ai-act-interval=12 --human-player
+cargo run --bin native-launcher -- --agent-asset=versus-relpos-obsfix-128m --ccd --players=2 --ai-act-interval=12 --human-player
 ```
 
 Run AI against itself:
 
 ```bash
-cargo run --release --bin native-launcher -- --agent-asset=versus-relpos-obsfix-512m --ccd --players=2 --ai-act-interval=12
+cargo run --bin native-launcher -- --agent-asset=versus-relpos-obsfix-512m --ccd --players=2 --ai-act-interval=12
 ```
 
 Train new AI:
@@ -71,8 +71,7 @@ app.insert_resource(
 
 To speed up the AI and bring its abilities closer to those of a human player, we only allow it to take an action every `ai_act_interval` frames (by default, every 12 frames = 133ms).
 While training, we don't really care about the intermediate physics steps, so we can speed up the simulation by reducing the number of frames and increasing the physics timestep.
-One issue is that this can cause tunneling, where the physics engine moves an object through another object.
-To avoid this issue, we enable (continuous collision detection)[https://github.com/jcornaz/heron/issues/199#issuecomment-1090279292], which allows for detection of collisions that happen in between two physics steps.
+For some reason, the fidelity of the simulation degrades when skipping too many frames.
 Empirically, combining up to 4 physics steps into a single frame (`--frameskip=4`) still gives fairly accurate physics.
 
 Observing game with 4x accelerated physics:
@@ -80,6 +79,3 @@ Observing game with 4x accelerated physics:
 ```bash
 cargo run --bin native-launcher -- --frameskip=4 --ai-act-interval=12 --agent-asset=versus-relpos-obsfix-512m --ccd
 ```
-
-For reasons that aren't clear to me, even with CCD enabled some weird issues happen.
-Bullets still tunnel through asteroids (on the first frame that an object was spawned?) and sometimes bullets get "stuck" on an object without triggering a collision event.
