@@ -4,6 +4,7 @@ pub mod python;
 use bevy::app::AppExit;
 use bevy::app::ScheduleRunnerSettings;
 use bevy::asset::AssetPlugin;
+use bevy::diagnostic::{FrameTimeDiagnosticsPlugin, LogDiagnosticsPlugin};
 use bevy::prelude::shape::{Circle, Quad};
 use bevy::render::mesh::Indices;
 use bevy::render::mesh::MeshPlugin;
@@ -77,6 +78,7 @@ pub struct Settings {
     pub difficulty_ramp: u32,
     pub opponent_policy: Option<String>,
     pub physics_debug_render: bool,
+    pub log_diagnostics: bool,
 }
 
 #[derive(Component)]
@@ -199,6 +201,11 @@ pub fn app(settings: Settings, agents: Vec<Box<dyn Agent>>) -> App {
             app.add_plugin(RapierDebugRenderPlugin::default());
         }
     }
+    if settings.log_diagnostics {
+        app.add_plugin(LogDiagnosticsPlugin::default())
+            .add_plugin(FrameTimeDiagnosticsPlugin::default());
+    }
+
     app.add_asset::<RogueNetAsset>()
         .init_asset_loader::<RogueNetAssetLoader>()
         .add_system(apply_policy_asset)
@@ -392,17 +399,23 @@ fn spawn_fighter(
     };
     let entity = cmd
         .spawn(Fighter {
-            max_velocity: 1000.0 * stats_multiplier,
-            acceleration: 20000.0 * stats_multiplier,
-            deceleration: 20000.0 * stats_multiplier,
-            drag_exp: 2.0,
-            drag_coef: 0.05,
-            turn_speed: 8.0 * stats_multiplier,
-            bullet_speed: 1000.0 * stats_multiplier,
+            max_velocity: 500.0 * stats_multiplier,
+            acceleration: 1000000.0 * stats_multiplier,
+            deceleration: 500000.0 * stats_multiplier,
+            drag_exp: 1.5,
+            drag_coef: 0.02,
+            turn_speed: 5.0 * stats_multiplier,
+            bullet_speed: 1500.0 * stats_multiplier,
             bullet_lifetime: 45,
             bullet_cooldown: 12,
             remaining_bullet_cooldown: 0,
             player_id,
+            act_interval: match player.agent {
+                Some(_) => settings
+                    .ai_action_interval
+                    .unwrap_or(settings.action_interval),
+                None => settings.action_interval,
+            },
         })
         .insert(RigidBody::Dynamic)
         .insert(ActiveEvents::COLLISION_EVENTS)
@@ -986,23 +999,21 @@ fn fighter_actions(
         &Transform,
         &mut Velocity,
         &mut ExternalImpulse,
+        &mut ExternalForce,
         &Children,
     )>,
     mut jet: Query<&mut Visibility, With<Jet>>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
     mut stats: ResMut<Stats>,
-    remaining_time: Res<RemainingTime>,
     settings: Res<Settings>,
 ) {
-    if remaining_time.0 as u32 % settings.action_interval != 0 {
-        return;
-    }
     for (action, id) in action_events.iter() {
-        let (mut fighter, transform, mut vel, mut imp, children) =
+        let (mut fighter, transform, mut vel, mut imp, mut force, children) =
             fighter.get_mut(*id).unwrap();
         // Reset rotation and acceleration
         imp.impulse = Vec2::new(0.0, 0.0);
+        force.force = Vec2::new(0.0, 0.0);
         vel.angvel = 0.0;
 
         let rot = transform.rotation.xyz();
@@ -1025,7 +1036,7 @@ fn fighter_actions(
             act::Thrust::On => {
                 let thrust = Vec2::new(angle2.cos(), angle2.sin())
                     * fighter.acceleration;
-                imp.impulse = thrust;
+                force.force = thrust;
                 jet.is_visible = true;
             }
             act::Thrust::Off => {
@@ -1033,17 +1044,17 @@ fn fighter_actions(
                 vel.linvel *= 1.0
                     - fighter.drag_coef
                         * (speed / fighter.max_velocity).powf(fighter.drag_exp)
-                        * settings.action_interval as f32;
+                        * fighter.act_interval as f32;
                 jet.is_visible = false;
             }
             act::Thrust::Stop => {
                 if speed
-                    < fighter.deceleration * settings.action_interval as f32
+                    < fighter.deceleration * fighter.act_interval as f32
                         / settings.frame_rate
                 {
                     vel.linvel = Vec2::ZERO;
                 } else {
-                    imp.impulse =
+                    force.force =
                         -vel.linvel.normalize() * fighter.deceleration;
                 }
             }
@@ -1153,6 +1164,7 @@ struct Fighter {
     bullet_lifetime: u32,
     remaining_bullet_cooldown: i32,
     player_id: usize,
+    act_interval: u32,
 }
 
 #[derive(Component)]
@@ -1316,6 +1328,7 @@ impl Default for Settings {
             ai_action_interval: None,
             opponent_policy: None,
             physics_debug_render: false,
+            log_diagnostics: false,
         }
     }
 }
