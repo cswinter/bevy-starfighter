@@ -3,7 +3,7 @@ use stylist::yew::styled_component;
 use stylist::{css, global_style};
 use yew::prelude::*;
 
-use bevy_dogfight_ai::LAUNCHER_TITLE;
+use bevy_starfighter::LAUNCHER_TITLE;
 
 fn set_window_title(title: &str) {
     web_sys::window()
@@ -54,14 +54,14 @@ fn main() {
     // Mount the DOM
     yew::start_app::<Root>();
     // Start the Bevy App
-    let settings = bevy_dogfight_ai::Settings {
+    let settings = bevy_starfighter::Settings {
         players: 2,
         ai_action_interval: Some(12),
         continuous_collision_detection: true,
         opponent_policy: Some("versus-relpos-obsfix-128m".to_string()),
         ..Default::default()
     };
-    let mut app = bevy_dogfight_ai::app(settings, vec![]);
+    let mut app = bevy_starfighter::app(settings, vec![]);
     info!("Starting launcher: WASM");
     app.run();
 }

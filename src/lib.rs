@@ -1,10 +1,10 @@
-mod ccd;
 #[cfg(feature = "python")]
 pub mod python;
 
 use bevy::app::AppExit;
 use bevy::app::ScheduleRunnerSettings;
 use bevy::asset::AssetPlugin;
+use bevy::diagnostic::{FrameTimeDiagnosticsPlugin, LogDiagnosticsPlugin};
 use bevy::prelude::shape::{Circle, Quad};
 use bevy::render::mesh::Indices;
 use bevy::render::mesh::MeshPlugin;
@@ -13,14 +13,13 @@ use bevy::sprite::Material2dPlugin;
 use bevy::sprite::MaterialMesh2dBundle;
 use bevy::time::FixedTimestep;
 use bevy::{log, prelude::*};
-use ccd::Ccd;
+use bevy_rapier2d::prelude::*;
 use entity_gym_rs::agent::{
     self, Agent, AgentOps, Obs, RogueNetAsset, RogueNetAssetLoader,
 };
-use heron::prelude::*;
-use heron::PhysicsSteps;
 use rand::rngs::SmallRng;
 use rand::{Rng, SeedableRng};
+use std::ops::{Deref, DerefMut};
 use std::time::Duration;
 
 #[cfg(feature = "python")]
@@ -33,16 +32,10 @@ const FIGHTER_COLORS: [Color; 2] =
 const BULLET_COLORS: [Color; 2] =
     [Color::rgb(0.8, 0.8, 1.0), Color::rgb(1.0, 0.7, 0.7)];
 
+#[derive(Resource)]
 struct OpponentHandle(Option<Handle<RogueNetAsset>>);
 
-#[derive(PhysicsLayer)]
-enum CollisionLayer {
-    Fighter,
-    Asteroid,
-    Bullet,
-}
-
-#[derive(Default, Debug)]
+#[derive(Default, Debug, Resource)]
 struct Stats {
     bullets_fired: usize,
     timesteps: usize,
@@ -62,7 +55,7 @@ impl Stats {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Resource)]
 pub struct Settings {
     pub seed: u64,
     pub frameskip: u32,
@@ -84,6 +77,8 @@ pub struct Settings {
     /// The interval at which the number of opponents is increased by one.
     pub difficulty_ramp: u32,
     pub opponent_policy: Option<String>,
+    pub physics_debug_render: bool,
+    pub log_diagnostics: bool,
 }
 
 #[derive(Component)]
@@ -98,9 +93,9 @@ impl Settings {
 
     fn ccd(&self) -> Ccd {
         if self.continuous_collision_detection {
-            Ccd::Enabled
+            Ccd::enabled()
         } else {
-            Ccd::Disabled
+            Ccd::disabled()
         }
     }
 }
@@ -124,11 +119,27 @@ pub fn base_app(
             settings.timestep_secs() as f64,
         ));
     }
+    let timestep_mode = if settings.frameskip > 1 || settings.headless {
+        TimestepMode::Fixed {
+            dt: 1.0 * settings.frameskip as f32 / settings.frame_rate as f32,
+            substeps: 1,
+        }
+    } else {
+        TimestepMode::Variable {
+            max_dt: 1.0 / settings.frame_rate,
+            time_scale: 1.0,
+            substeps: 1,
+        }
+    };
     let mut app = App::new();
-    app.add_plugin(PhysicsPlugin::default())
-        .add_plugin(ccd::CcdPhysicsPlugin)
+    app.add_plugin(RapierPhysicsPlugin::<NoUserData>::pixels_per_meter(1.0))
+        .insert_resource(RapierConfiguration {
+            gravity: Vect::new(0.0, 0.0),
+            timestep_mode,
+            ..default()
+        })
         .insert_resource(OpponentHandle(None))
-        .insert_resource(SmallRng::seed_from_u64(settings.seed))
+        .insert_resource(RngState(SmallRng::seed_from_u64(settings.seed)))
         .insert_resource(ClearColor(Color::rgb(0.0, 0.0, 0.0)))
         .insert_resource(RemainingTime(2700))
         .insert_resource(Stats::default())
@@ -173,9 +184,6 @@ pub fn app(settings: Settings, agents: Vec<Box<dyn Agent>>) -> App {
         app.insert_resource(ScheduleRunnerSettings::run_loop(
             Duration::from_secs_f64(0.0),
         ))
-        .insert_resource(PhysicsSteps::every_frame(Duration::from_secs_f64(
-            settings.timestep_secs() as f64,
-        )))
         .add_plugins(MinimalPlugins)
         .add_plugin(AssetPlugin::default())
         .add_plugin(MeshPlugin)
@@ -186,21 +194,28 @@ pub fn app(settings: Settings, agents: Vec<Box<dyn Agent>>) -> App {
             app.add_plugin(bevy::log::LogPlugin::default());
         }
     } else {
-        app.insert_resource(WindowDescriptor {
-            title: LAUNCHER_TITLE.to_string(),
-            width: 2000.0,
-            height: 1000.0,
-            canvas: Some("#bevy".to_string()),
-            fit_canvas_to_parent: true,
-            ..Default::default()
-        })
-        .insert_resource(PhysicsSteps::every_frame(Duration::from_secs_f64(
-            settings.timestep_secs() as f64,
-        )))
+        app.add_plugins(DefaultPlugins.set(WindowPlugin {
+            window: WindowDescriptor {
+                title: LAUNCHER_TITLE.to_string(),
+                width: 2000.0,
+                height: 1000.0,
+                canvas: Some("#bevy".to_string()),
+                fit_canvas_to_parent: true,
+                ..default()
+            },
+            ..default()
+        }))
         .add_system(keyboard_events)
-        .add_plugins(DefaultPlugins)
         .add_startup_system(setup);
+        if settings.physics_debug_render {
+            app.add_plugin(RapierDebugRenderPlugin::default());
+        }
     }
+    if settings.log_diagnostics {
+        app.add_plugin(LogDiagnosticsPlugin::default())
+            .add_plugin(FrameTimeDiagnosticsPlugin::default());
+    }
+
     app.add_asset::<RogueNetAsset>()
         .init_asset_loader::<RogueNetAssetLoader>()
         .add_system(apply_policy_asset)
@@ -347,11 +362,11 @@ fn setup(
         &mut materials,
         &mut players,
     );
-    cmd.spawn_bundle(Camera2dBundle::default());
+    cmd.spawn(Camera2dBundle::default());
     // Spawn rectangular bounds
     let bounds = Quad::new(Vec2::new(2000.0, 1000.0));
     let handle = meshes.add(bounds.into());
-    cmd.spawn().insert_bundle(ColorMesh2dBundle {
+    cmd.spawn(ColorMesh2dBundle {
         mesh: handle.into(),
         transform: Transform::default(),
         material: materials
@@ -393,48 +408,49 @@ fn spawn_fighter(
         settings.opponent_stats_multiplier
     };
     let entity = cmd
-        .spawn()
-        .insert(Fighter {
-            max_velocity: 1000.0 * stats_multiplier,
-            acceleration: 4000.0 * stats_multiplier,
-            deceleration: 2000.0 * stats_multiplier,
-            drag_exp: 2.0,
-            drag_coef: 0.05,
-            turn_speed: 10.0 * stats_multiplier,
+        .spawn(Fighter {
+            max_velocity: 500.0 * stats_multiplier,
+            acceleration: 1000000.0 * stats_multiplier,
+            deceleration: 500000.0 * stats_multiplier,
+            drag_exp: 1.5,
+            drag_coef: 0.02,
+            turn_speed: 5.0 * stats_multiplier,
             bullet_speed: 1500.0 * stats_multiplier,
             bullet_lifetime: 45,
             bullet_cooldown: 12,
             remaining_bullet_cooldown: 0,
             player_id,
+            act_interval: match player.agent {
+                Some(_) => settings
+                    .ai_action_interval
+                    .unwrap_or(settings.action_interval),
+                None => settings.action_interval,
+            },
         })
         .insert(RigidBody::Dynamic)
-        .insert(PhysicMaterial {
-            restitution: 1.0,
-            density: 10000.0,
-            friction: 0.5,
-        })
-        .insert(CollisionShape::ConvexHull {
-            points: vec![
-                50.0 * Vec3::new(0.0, 0.4, 0.0),
-                50.0 * Vec3::new(-0.3, -0.4, 0.0),
-                50.0 * Vec3::new(0.3, -0.4, 0.0),
-            ],
-            border_radius: None,
-        })
-        .insert(Velocity::from_linear(Vec3::new(0.0, 0.0, 0.0)))
-        .insert(Acceleration::from_linear(Vec3::new(0.0, 0.0, 0.0)))
-        .insert(RotationConstraints::lock())
-        .insert(CollisionType::Fighter)
+        .insert(ActiveEvents::COLLISION_EVENTS)
         .insert(
-            CollisionLayers::none()
-                .with_group(CollisionLayer::Fighter)
-                .with_masks(&[
-                    CollisionLayer::Asteroid,
-                    CollisionLayer::Bullet,
-                    CollisionLayer::Fighter,
-                ]),
+            Collider::convex_hull(&[
+                Vect::new(0.0, 0.4),
+                Vect::new(-0.3, -0.4),
+                Vect::new(0.3, -0.4),
+            ])
+            .unwrap(),
         )
-        .insert_bundle(MaterialMesh2dBundle {
+        .insert(Velocity {
+            linvel: Vec2::new(0.0, 0.0),
+            angvel: 0.0,
+        })
+        .insert(ExternalForce {
+            force: Vec2::new(0.0, 0.0),
+            torque: 0.0,
+        })
+        .insert(ExternalImpulse {
+            impulse: Vec2::new(0.0, 0.0),
+            torque_impulse: 0.0,
+        })
+        .insert(CollisionType::Fighter)
+        .insert(MaterialMesh2dBundle {
             mesh: meshes.add(create_fighter_mesh()).into(),
             transform: Transform::default()
                 .with_scale(Vec3::splat(50.0))
@@ -444,12 +460,11 @@ fn spawn_fighter(
             )),
             ..default()
         })
-        .insert(settings.ccd())
         .with_children(|parent| {
             let jet = Quad::new(Vec2::new(0.3, 0.20));
             let handle = meshes.add(Mesh::from(jet));
             parent
-                .spawn_bundle(ColorMesh2dBundle {
+                .spawn(ColorMesh2dBundle {
                     mesh: handle.into(),
                     material: materials.add(ColorMaterial::from(Color::rgba(
                         1.0, 1.0, 1.0, 1.0,
@@ -471,7 +486,7 @@ fn respawn(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
     mut players: NonSendMut<Players>,
-    mut rng: ResMut<SmallRng>,
+    mut rng: ResMut<RngState>,
 ) {
     for (i, player) in players.0.iter_mut().enumerate() {
         let target_count = if i == 0 {
@@ -515,46 +530,36 @@ fn spawn_bullet(
     meshes: &mut ResMut<Assets<Mesh>>,
     materials: &mut ResMut<Assets<ColorMaterial>>,
     position: Vec3,
-    velocity: Vec3,
+    velocity: Vec2,
     lifetime: u32,
     player_id: usize,
 ) {
     let radius = 3.0;
     let circle = Circle::new(radius);
     let handle = meshes.add(circle.into());
-    cmd.spawn()
-        .insert(Bullet {
-            remaining_lifetime: lifetime as i32,
-        })
-        .insert(RigidBody::Dynamic)
-        .insert(PhysicMaterial {
-            restitution: 1.0,
-            density: 2000.0,
-            friction: 0.5,
-        })
-        .insert(CollisionShape::Sphere { radius })
-        .insert(Velocity::from_linear(velocity))
-        .insert(RotationConstraints::lock())
-        .insert(CollisionType::Bullet)
-        .insert(
-            CollisionLayers::none()
-                .with_group(CollisionLayer::Bullet)
-                .with_masks(&[
-                    CollisionLayer::Asteroid,
-                    CollisionLayer::Fighter,
-                ]),
-        )
-        .insert(settings.ccd())
-        .insert_bundle(MaterialMesh2dBundle {
-            mesh: handle.into(),
-            transform: Transform::default()
-                .with_scale(Vec3::splat(1.0))
-                .with_translation(position),
-            material: materials.add(ColorMaterial::from(
-                BULLET_COLORS[player_id % BULLET_COLORS.len()],
-            )),
-            ..default()
-        });
+    cmd.spawn(Bullet {
+        remaining_lifetime: lifetime as i32,
+    })
+    .insert(RigidBody::Dynamic)
+    .insert(Collider::ball(radius))
+    .insert(Velocity {
+        linvel: velocity,
+        angvel: 0.0,
+    })
+    .insert(LockedAxes::ROTATION_LOCKED)
+    .insert(CollisionType::Bullet)
+    .insert(ActiveEvents::COLLISION_EVENTS)
+    .insert(settings.ccd())
+    .insert(MaterialMesh2dBundle {
+        mesh: handle.into(),
+        transform: Transform::default()
+            .with_scale(Vec3::splat(1.0))
+            .with_translation(position),
+        material: materials.add(ColorMaterial::from(
+            BULLET_COLORS[player_id % BULLET_COLORS.len()],
+        )),
+        ..default()
+    });
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -571,7 +576,7 @@ fn detect_collisions(
 ) {
     //log::info!("{}", stats.timesteps);
     for event in events.iter() {
-        if let CollisionEvent::Started(data1, data2) = event {
+        if let CollisionEvent::Started(data1, data2, _) = *event {
             // log::info!(
             //     "{:?} <-> {:?} collision ({:?}, {:?})",
             //     collision_type.get(data1.rigid_body_entity()).unwrap(),
@@ -580,8 +585,8 @@ fn detect_collisions(
             //     data2.rigid_body_entity()
             // );
             match (
-                collision_type.get(data1.rigid_body_entity()).unwrap(),
-                collision_type.get(data2.rigid_body_entity()).unwrap(),
+                collision_type.get(data1).unwrap(),
+                collision_type.get(data2).unwrap(),
             ) {
                 (CollisionType::Fighter, CollisionType::Asteroid) => {
                     remove_fighter(
@@ -590,7 +595,7 @@ fn detect_collisions(
                         &mut game_over,
                         &mut fighters,
                         &mut players,
-                        data1.rigid_body_entity(),
+                        data1,
                     );
                 }
                 (CollisionType::Asteroid, CollisionType::Fighter) => {
@@ -600,7 +605,7 @@ fn detect_collisions(
                         &mut game_over,
                         &mut fighters,
                         &mut players,
-                        data2.rigid_body_entity(),
+                        data2,
                     );
                 }
                 (CollisionType::Bullet, CollisionType::Asteroid) => {
@@ -609,8 +614,8 @@ fn detect_collisions(
                         &mut asteroids,
                         &mut materials,
                         &mut stats,
-                        data2.rigid_body_entity(),
-                        data1.rigid_body_entity(),
+                        data2,
+                        data1,
                     );
                 }
                 (CollisionType::Asteroid, CollisionType::Bullet) => {
@@ -619,8 +624,8 @@ fn detect_collisions(
                         &mut asteroids,
                         &mut materials,
                         &mut stats,
-                        data1.rigid_body_entity(),
-                        data2.rigid_body_entity(),
+                        data1,
+                        data2,
                     );
                 }
                 (CollisionType::Fighter, CollisionType::Bullet) => {
@@ -630,9 +635,9 @@ fn detect_collisions(
                         &mut game_over,
                         &mut fighters,
                         &mut players,
-                        data1.rigid_body_entity(),
+                        data1,
                     );
-                    cmd.entity(data2.rigid_body_entity()).despawn();
+                    cmd.entity(data2).despawn();
                 }
                 (CollisionType::Bullet, CollisionType::Fighter) => {
                     remove_fighter(
@@ -641,9 +646,9 @@ fn detect_collisions(
                         &mut game_over,
                         &mut fighters,
                         &mut players,
-                        data2.rigid_body_entity(),
+                        data2,
                     );
-                    cmd.entity(data2.rigid_body_entity()).despawn();
+                    cmd.entity(data2).despawn();
                 }
                 _ => {}
             }
@@ -713,20 +718,20 @@ fn check_boundary_collision(
         let x = transform.translation.x;
         let y = transform.translation.y;
         if x > 1000.0 {
-            velocity.linear.x = -fighter.max_velocity;
+            velocity.linvel.x = -velocity.linvel.x.abs();
         } else if x < -1000.0 {
-            velocity.linear.x = fighter.max_velocity;
+            velocity.linvel.x = velocity.linvel.x.abs();
         }
         if y > 500.0 {
-            velocity.linear.y = -fighter.max_velocity;
+            velocity.linvel.y = -velocity.linvel.y.abs();
         } else if y < -500.0 {
-            velocity.linear.y = fighter.max_velocity;
+            velocity.linvel.y = velocity.linvel.y.abs();
         }
         // Clamp velocity
-        let speed = velocity.linear.length();
+        let speed = velocity.linvel.length();
         if speed > fighter.max_velocity {
-            velocity.linear =
-                velocity.linear.normalize() * fighter.max_velocity;
+            velocity.linvel =
+                velocity.linvel.normalize() * fighter.max_velocity;
         }
     }
 }
@@ -737,7 +742,7 @@ fn spawn_asteroids(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
     mut asteroids: Query<(Entity, &mut Asteroid, &mut Transform)>,
-    mut rng: ResMut<SmallRng>,
+    mut rng: ResMut<RngState>,
 ) {
     let mut count = 0;
     for asteroid in asteroids.iter_mut() {
@@ -759,48 +764,31 @@ fn spawn_asteroids(
         let size: f32 = rng.gen_range(20.0..60.0) * rng.gen_range(20.0..60.0);
         let circle = Circle::new(size.sqrt());
         let handle = meshes.add(circle.into());
-        cmd.spawn()
-            .insert(Asteroid {
-                health: 5.0,
-                radius: size.sqrt(),
-            })
-            .insert(RigidBody::Dynamic)
-            .insert(PhysicMaterial {
-                restitution: 1.0,
-                density: size,
-                friction: 0.5,
-            })
-            .insert(CollisionShape::Sphere {
-                radius: size.sqrt(),
-            })
-            .insert(Velocity::from_linear(
-                speed * Vec3::new(direction.cos(), direction.sin(), 0.0),
-            ))
-            .insert(RotationConstraints::lock())
-            .insert(CollisionType::Asteroid)
-            .insert(settings.ccd())
-            .insert(
-                CollisionLayers::none()
-                    .with_group(CollisionLayer::Asteroid)
-                    .with_masks(&[
-                        CollisionLayer::Asteroid,
-                        CollisionLayer::Bullet,
-                        CollisionLayer::Fighter,
-                    ]),
-            )
-            .insert_bundle(ColorMesh2dBundle {
-                mesh: handle.into(),
-                transform: Transform::default()
-                    .with_scale(Vec3::splat(1.0))
-                    .with_translation(Vec3::new(
-                        1500.0 * spawn_angle.cos(),
-                        750.0 * spawn_angle.sin(),
-                        1.0,
-                    )),
-                material: materials
-                    .add(ColorMaterial::from(Color::rgba(0.6, 0.5, 0.5, 1.0))),
-                ..default()
-            });
+        cmd.spawn(Asteroid {
+            health: 5.0,
+            radius: size.sqrt(),
+        })
+        .insert(RigidBody::Dynamic)
+        .insert(LockedAxes::ROTATION_LOCKED)
+        .insert(Collider::ball(size.sqrt()))
+        .insert(Velocity {
+            linvel: speed * Vec2::new(direction.cos(), direction.sin()),
+            angvel: 0.0,
+        })
+        .insert(CollisionType::Asteroid)
+        .insert(ColorMesh2dBundle {
+            mesh: handle.into(),
+            transform: Transform::default()
+                .with_scale(Vec3::splat(1.0))
+                .with_translation(Vec3::new(
+                    1500.0 * spawn_angle.cos(),
+                    750.0 * spawn_angle.sin(),
+                    1.0,
+                )),
+            material: materials
+                .add(ColorMaterial::from(Color::rgba(0.6, 0.5, 0.5, 1.0))),
+            ..default()
+        });
         count += 1;
     }
 }
@@ -928,7 +916,7 @@ fn ai(
         for id in &*ids {
             if let Ok((fighter, transform, velocity)) = fighter.get(*id) {
                 let pos = transform.translation;
-                let vel = velocity.linear;
+                let vel = velocity.linvel;
                 let (direction_x, direction_y) =
                     transform_to_direction(transform);
                 actor_entities.push(entity::Fighter {
@@ -955,7 +943,7 @@ fn ai(
             .entities(fighter.iter().filter(|(f, _, _)| f.player_id != i).map(
                 |(fighter, transform, velocity)| {
                     let pos = transform.translation;
-                    let vel = velocity.linear;
+                    let vel = velocity.linvel;
                     let (direction_x, direction_y) =
                         transform_to_direction(transform);
                     entity::EnemyFighter {
@@ -974,7 +962,7 @@ fn ai(
             .entities(asteroids.iter().map(
                 |(asteroid, transform, velocity)| {
                     let pos = transform.translation;
-                    let vel = velocity.linear;
+                    let vel = velocity.linvel;
                     entity::Asteroid {
                         health: asteroid.health,
                         radius: asteroid.radius,
@@ -987,7 +975,7 @@ fn ai(
             ))
             .entities(bullets.iter().map(|(bullet, transform, velocity)| {
                 let pos = transform.translation;
-                let vel = velocity.linear;
+                let vel = velocity.linvel;
                 entity::Bullet {
                     x: pos.x,
                     y: pos.y,
@@ -1020,25 +1008,23 @@ fn fighter_actions(
         &mut Fighter,
         &Transform,
         &mut Velocity,
-        &mut Acceleration,
+        &mut ExternalImpulse,
+        &mut ExternalForce,
         &Children,
     )>,
     mut jet: Query<&mut Visibility, With<Jet>>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
     mut stats: ResMut<Stats>,
-    remaining_time: Res<RemainingTime>,
     settings: Res<Settings>,
 ) {
-    if remaining_time.0 as u32 % settings.action_interval != 0 {
-        return;
-    }
     for (action, id) in action_events.iter() {
-        let (mut fighter, transform, mut velocity, mut acceleration, children) =
+        let (mut fighter, transform, mut vel, mut imp, mut force, children) =
             fighter.get_mut(*id).unwrap();
         // Reset rotation and acceleration
-        velocity.angular = AxisAngle::new(Vec3::Z, 0.0);
-        acceleration.linear = Vec3::ZERO;
+        imp.impulse = Vec2::new(0.0, 0.0);
+        force.force = Vec2::new(0.0, 0.0);
+        vel.angvel = 0.0;
 
         let rot = transform.rotation.xyz();
         let mut angle = transform.rotation.to_axis_angle().1;
@@ -1047,49 +1033,39 @@ fn fighter_actions(
         }
         let angle2 = angle + std::f32::consts::PI / 2.0;
 
-        match action.turn {
-            act::Turn::Left => {
-                velocity.angular = AxisAngle::new(Vec3::Z, fighter.turn_speed);
-            }
-            act::Turn::QuarterLeft => {
-                velocity.angular =
-                    AxisAngle::new(Vec3::Z, fighter.turn_speed * 0.25);
-            }
-            act::Turn::Right => {
-                velocity.angular = AxisAngle::new(Vec3::Z, -fighter.turn_speed);
-            }
-            act::Turn::QuarterRight => {
-                velocity.angular =
-                    AxisAngle::new(Vec3::Z, -fighter.turn_speed * 0.25);
-            }
-            act::Turn::None => {}
-        }
+        vel.angvel = match action.turn {
+            act::Turn::Left => fighter.turn_speed,
+            act::Turn::QuarterLeft => fighter.turn_speed * 0.25,
+            act::Turn::Right => -fighter.turn_speed,
+            act::Turn::QuarterRight => -fighter.turn_speed * 0.25,
+            act::Turn::None => 0.0,
+        };
         let mut jet = jet.get_mut(*children.first().unwrap()).unwrap();
-        let speed = velocity.linear.length();
+        let speed = vel.linvel.length();
         match action.thrust {
             act::Thrust::On => {
-                let thrust = Vec3::new(angle2.cos(), angle2.sin(), 0.0)
+                let thrust = Vec2::new(angle2.cos(), angle2.sin())
                     * fighter.acceleration;
-                acceleration.linear = thrust;
+                force.force = thrust;
                 jet.is_visible = true;
             }
             act::Thrust::Off => {
                 // Should integrate here rather than just multiplying by interval, whatever
-                velocity.linear *= 1.0
+                vel.linvel *= 1.0
                     - fighter.drag_coef
                         * (speed / fighter.max_velocity).powf(fighter.drag_exp)
-                        * settings.action_interval as f32;
+                        * fighter.act_interval as f32;
                 jet.is_visible = false;
             }
             act::Thrust::Stop => {
                 if speed
-                    < fighter.deceleration * settings.action_interval as f32
+                    < fighter.deceleration * fighter.act_interval as f32
                         / settings.frame_rate
                 {
-                    velocity.linear = Vec3::ZERO;
+                    vel.linvel = Vec2::ZERO;
                 } else {
-                    acceleration.linear =
-                        -velocity.linear.normalize() * fighter.deceleration;
+                    force.force =
+                        -vel.linvel.normalize() * fighter.deceleration;
                 }
             }
         }
@@ -1104,8 +1080,8 @@ fn fighter_actions(
                     &mut materials,
                     transform.translation
                         + 24.0 * Vec3::new(angle2.cos(), angle2.sin(), 0.0),
-                    velocity.linear
-                        + Vec3::new(angle2.cos(), angle2.sin(), 0.0)
+                    vel.linvel
+                        + Vec2::new(angle2.cos(), angle2.sin())
                             * fighter.bullet_speed,
                     fighter.bullet_lifetime,
                     fighter.player_id,
@@ -1162,7 +1138,7 @@ fn spawn_highscore_text(
         horizontal: HorizontalAlign::Left,
     };
     commands
-        .spawn_bundle(Text2dBundle {
+        .spawn(Text2dBundle {
             text: Text::from_section("Score: 0\nBest: 0", text_style)
                 .with_alignment(text_alignment),
             transform: Transform::from_translation(Vec3::new(
@@ -1198,6 +1174,7 @@ struct Fighter {
     bullet_lifetime: u32,
     remaining_bullet_cooldown: i32,
     player_id: usize,
+    act_interval: u32,
 }
 
 #[derive(Component)]
@@ -1223,7 +1200,11 @@ enum CollisionType {
 
 struct GameOver;
 
+#[derive(Resource)]
 struct RemainingTime(i32);
+
+#[derive(Resource)]
+struct RngState(SmallRng);
 
 #[derive(Debug)]
 struct Players(Vec<Player>);
@@ -1356,6 +1337,22 @@ impl Default for Settings {
             difficulty_ramp: 20 * 90, // 20 seconds
             ai_action_interval: None,
             opponent_policy: None,
+            physics_debug_render: false,
+            log_diagnostics: false,
         }
+    }
+}
+
+impl Deref for RngState {
+    type Target = SmallRng;
+
+    fn deref(&self) -> &SmallRng {
+        &self.0
+    }
+}
+
+impl DerefMut for RngState {
+    fn deref_mut(&mut self) -> &mut SmallRng {
+        &mut self.0
     }
 }

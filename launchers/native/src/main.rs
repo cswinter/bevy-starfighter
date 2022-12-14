@@ -1,7 +1,7 @@
 use std::io::Cursor;
 
 use bevy::{prelude::*, window::WindowId, winit::WinitWindows};
-use bevy_dogfight_ai::Settings;
+use bevy_starfighter::Settings;
 use clap::Parser;
 use winit::window::Icon;
 
@@ -38,6 +38,10 @@ struct Args {
     opponent_stats_multiplier: f32,
     #[clap(long)]
     human_player: bool,
+    #[clap(long)]
+    physics_debug_render: bool,
+    #[clap(long)]
+    log_diagnostics: bool,
 }
 
 fn set_window_icon(windows: NonSend<WinitWindows>) {
@@ -80,8 +84,10 @@ fn main() {
         human_player: args.human_player,
         difficulty_ramp: 20 * 90,
         opponent_policy: args.agent_asset,
+        physics_debug_render: args.physics_debug_render,
+        log_diagnostics: args.log_diagnostics,
     };
-    let mut app = bevy_dogfight_ai::app(settings, vec![]);
+    let mut app = bevy_starfighter::app(settings, vec![]);
 
     info!("Starting launcher: Native");
     if !args.headless {

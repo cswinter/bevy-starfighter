@@ -1,5 +1,5 @@
 [package]
-name = "bevy-dogfight-ai"
+name = "bevy-starfighter"
 version = "0.2.0"
 edition = "2021"
 
@@ -11,7 +11,7 @@ members = [
 
 [lib]
 crate-type = ["cdylib", "rlib"]
-name = "bevy_dogfight_ai"
+name = "bevy_starfighter"
 
 [[bin]]
 name="native-launcher"
@@ -30,17 +30,29 @@ lto = true
 debug = true
 
 [dependencies]
-bevy = "0.8.1"
+bevy = "0.9"
 image = "0.24.3"
-winit = "0.26.1"
-heron = { version = "4", features = ["2d"] }
+winit = "0.27"
 rand = { version = "0.8.5", features = ["small_rng"] }
-entity-gym-rs = { version = "0.7.1", features = ["bevy"] }
+entity-gym-rs = { version = "0.8", features = ["bevy"] }
 # entity-gym-rs = { path = "../entity-gym-rs" }
 pyo3 = { version = "0.15", features = ["extension-module"], optional = true }
 clap = { version = "3.1.7", features = ["derive"] }
 ragged-buffer = "0.3.8"
 rogue-net = "0.4.1"
+bevy_rapier2d = { version = "0.19", features = ["debug-render"] }
+
+[profile.dev.package.rapier2d]
+opt-level = 3
+
+[profile.dev.package.entity-gym-rs]
+opt-level = 3
+
+[profile.dev.package.rogue-net]
+opt-level = 3
+
+[profile.dev.package.ragged-buffer]
+opt-level = 3
 
 [features]
 python = ["pyo3", "entity-gym-rs/python", "ragged-buffer/python"]
