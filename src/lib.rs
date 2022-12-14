@@ -119,10 +119,23 @@ pub fn base_app(
             settings.timestep_secs() as f64,
         ));
     }
+    let timestep_mode = if settings.frameskip > 1 || settings.headless {
+        TimestepMode::Fixed {
+            dt: 1.0 * settings.frameskip as f32 / settings.frame_rate as f32,
+            substeps: 1,
+        }
+    } else {
+        TimestepMode::Variable {
+            max_dt: 1.0 / settings.frame_rate,
+            time_scale: 1.0,
+            substeps: 1,
+        }
+    };
     let mut app = App::new();
     app.add_plugin(RapierPhysicsPlugin::<NoUserData>::pixels_per_meter(1.0))
         .insert_resource(RapierConfiguration {
             gravity: Vect::new(0.0, 0.0),
+            timestep_mode,
             ..default()
         })
         .insert_resource(OpponentHandle(None))
@@ -171,15 +184,15 @@ pub fn app(settings: Settings, agents: Vec<Box<dyn Agent>>) -> App {
         app.insert_resource(ScheduleRunnerSettings::run_loop(
             Duration::from_secs_f64(0.0),
         ))
-        /*.insert_resource(PhysicsSteps::every_frame(Duration::from_secs_f64(
-            settings.timestep_secs() as f64,
-        )))*/
         .add_plugins(MinimalPlugins)
         .add_plugin(AssetPlugin::default())
         .add_plugin(MeshPlugin)
         .add_plugin(MaterialPlugin::<StandardMaterial>::default())
         .add_plugin(Material2dPlugin::<ColorMaterial>::default())
         .add_startup_system(setup);
+        if settings.enable_logging {
+            app.add_plugin(bevy::log::LogPlugin::default());
+        }
     } else {
         app.add_plugins(DefaultPlugins.set(WindowPlugin {
             window: WindowDescriptor {
@@ -192,9 +205,6 @@ pub fn app(settings: Settings, agents: Vec<Box<dyn Agent>>) -> App {
             },
             ..default()
         }))
-        /* .insert_resource(PhysicsSteps::every_frame(Duration::from_secs_f64(
-            settings.timestep_secs() as f64,
-        )))*/
         .add_system(keyboard_events)
         .add_startup_system(setup);
         if settings.physics_debug_render {
