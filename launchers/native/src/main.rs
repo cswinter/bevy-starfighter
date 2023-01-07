@@ -27,14 +27,14 @@ struct Args {
     ai_act_interval: Option<u32>,
     #[clap(long, value_parser, default_value = "1")]
     players: u32,
-    #[clap(long, value_parser, default_value = "25")]
+    #[clap(long, value_parser, default_value = "5")]
     asteroid_count: u32,
     /// Enable continuous collision detection
     #[clap(long)]
     ccd: bool,
     #[clap(long, value_parser, default_value = "450")]
     respawn_time: u32,
-    #[clap(long, value_parser, default_value = "0.6")]
+    #[clap(long, value_parser, default_value = "0.3")]
     opponent_stats_multiplier: f32,
     #[clap(long)]
     human_player: bool,
