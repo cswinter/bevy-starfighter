@@ -1,7 +1,7 @@
 #[cfg(feature = "python")]
 fn main() {
-    use bevy_dogfight_ai::python::Config;
-    use bevy_dogfight_ai::*;
+    use bevy_starfighter::python::Config;
+    use bevy_starfighter::*;
     use entity_gym_rs::agent::TrainEnvBuilder;
     use ragged_buffer::ragged_buffer::RaggedBuffer;
     //use std::hint::black_box;
@@ -29,6 +29,7 @@ fn main() {
         frameskip: args.frameskip,
         act_interval: args.act_interval,
         versus: false,
+        ccd: true,
     };
     let mut env = TrainEnvBuilder::default()
         .entity::<entity::Fighter>()

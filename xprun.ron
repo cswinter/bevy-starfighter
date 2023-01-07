@@ -10,10 +10,8 @@ XpV0(
                 Run("curl -sSL https://raw.githubusercontent.com/python-poetry/poetry/master/get-poetry.py | python -"),
                 Env("PATH", "/root/.poetry/bin:${PATH}"),
 
-                // Required by alsa library (Bevy dependency)
-                Run("apt-get update"),
-                Run("apt-get install libasound2-dev -y"),
-                Run("apt-get install libudev-dev -y"),
+                // Required by alsa library and fontconfig (Bevy dependencies)
+                Run("apt-get update && apt-get install -y libasound2-dev libudev-dev libfontconfig libfontconfig1-dev"),
 
                 // Install Rust toolchain
                 Run("apt-get update"),
@@ -29,9 +27,9 @@ XpV0(
                         "pyproject.toml",
                         "poetry.lock",
                     ],
-                    target_dir: "/root/bevy-dogfight-ai",
+                    target_dir: "/root/bevy-starfighter",
                 ),
-                Cd("/root/bevy-dogfight-ai"),
+                Cd("/root/bevy-starfighter"),
 
                 Run("poetry install"),
                 Run("poetry run pip install torch==1.12.0+cu113 -f https://download.pytorch.org/whl/cu113/torch_stable.html"),
@@ -41,9 +39,9 @@ XpV0(
                 Repo(url: "git@github.com:cswinter/xprun.git", rev: "d8a58d8", target_dir: "/root"),
                 Run("poetry run maturin develop --features=python --release --manifest-path=/root/xprun/Cargo.toml"),
 
-                // Build bevy-dogfight-ai
+                // Build bevy-starfighter
                 Repo(target_dir: "/root"),
-                Cd("/root/bevy-dogfight-ai"),
+                Cd("/root/bevy-starfighter"),
                 Run("poetry run maturin develop --features=python --release"),
             ],
             gpu: 1,

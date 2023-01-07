@@ -1,7 +1,7 @@
 TrainConfig(
     version: 3,
     env: (
-        id: "BevyDogfight",
+        id: "BevyStarfighter",
         kwargs: "{\"frameskip\": 4, \"act_interval\": 12}",
     ),
     net: (
@@ -17,13 +17,13 @@ TrainConfig(
             value_gate: "relu",
         ),
     ),
-/*    eval: (
+    /*eval: (
         interval: 4000000,
         num_envs: 512,
         steps: 1000,
-        opponent: "assets/policies/versus2-64m",
+        opponent: "assets/policies/versus-relpos-256m",
         env: (
-            id: "BevyDogfight",
+            id: "BevyStarfighter",
             kwargs: "{\"frameskip\": 4, \"act_interval\": 12}",
         )
     ),*/
