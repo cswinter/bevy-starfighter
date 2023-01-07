@@ -409,16 +409,18 @@ fn spawn_fighter(
     };
     let entity = cmd
         .spawn(Fighter {
-            max_velocity: 500.0 * stats_multiplier,
+            max_velocity: 1000.0 * stats_multiplier,
             acceleration: 1000000.0 * stats_multiplier,
-            deceleration: 500000.0 * stats_multiplier,
+            deceleration: 50000.0 * stats_multiplier,
             drag_exp: 1.5,
             drag_coef: 0.02,
-            turn_speed: 5.0 * stats_multiplier,
+            turn_acceleration: 0.5,
+            max_turn_speed: 8.0 * stats_multiplier,
             bullet_speed: 1500.0 * stats_multiplier,
             bullet_lifetime: 45,
             bullet_cooldown: 12,
             remaining_bullet_cooldown: 0,
+            is_turning: false,
             player_id,
             act_interval: match player.agent {
                 Some(_) => settings
@@ -712,6 +714,7 @@ fn remove_fighter(
 }
 
 fn check_boundary_collision(
+    settings: Res<Settings>,
     mut fighter: Query<(&mut Velocity, &Transform, &mut Fighter)>,
 ) {
     for (mut velocity, transform, fighter) in fighter.iter_mut() {
@@ -726,6 +729,11 @@ fn check_boundary_collision(
             velocity.linvel.y = -velocity.linvel.y.abs();
         } else if y < -500.0 {
             velocity.linvel.y = velocity.linvel.y.abs();
+        }
+        if !fighter.is_turning && velocity.angvel != 0.0 {
+            velocity.angvel -= velocity.angvel.signum()
+                * fighter.turn_acceleration
+                * settings.frameskip as f32;
         }
         // Clamp velocity
         let speed = velocity.linvel.length();
@@ -1024,7 +1032,8 @@ fn fighter_actions(
         // Reset rotation and acceleration
         imp.impulse = Vec2::new(0.0, 0.0);
         force.force = Vec2::new(0.0, 0.0);
-        vel.angvel = 0.0;
+        force.torque = 0.0;
+        fighter.is_turning = action.turn != act::Turn::None;
 
         let rot = transform.rotation.xyz();
         let mut angle = transform.rotation.to_axis_angle().1;
@@ -1033,13 +1042,16 @@ fn fighter_actions(
         }
         let angle2 = angle + std::f32::consts::PI / 2.0;
 
-        vel.angvel = match action.turn {
-            act::Turn::Left => fighter.turn_speed,
-            act::Turn::QuarterLeft => fighter.turn_speed * 0.25,
-            act::Turn::Right => -fighter.turn_speed,
-            act::Turn::QuarterRight => -fighter.turn_speed * 0.25,
+        vel.angvel += match action.turn {
+            act::Turn::Left => fighter.turn_acceleration,
+            act::Turn::QuarterLeft => fighter.turn_acceleration * 0.25,
+            act::Turn::Right => -fighter.turn_acceleration,
+            act::Turn::QuarterRight => -fighter.turn_acceleration * 0.25,
             act::Turn::None => 0.0,
-        };
+        } * settings.frameskip as f32;
+        vel.angvel = vel
+            .angvel
+            .clamp(-fighter.max_turn_speed, fighter.max_turn_speed);
         let mut jet = jet.get_mut(*children.first().unwrap()).unwrap();
         let speed = vel.linvel.length();
         match action.thrust {
@@ -1168,13 +1180,15 @@ struct Fighter {
     deceleration: f32,
     drag_exp: f32,
     drag_coef: f32,
-    turn_speed: f32,
+    turn_acceleration: f32,
+    max_turn_speed: f32,
     bullet_cooldown: u32,
     bullet_speed: f32,
     bullet_lifetime: u32,
     remaining_bullet_cooldown: i32,
     player_id: usize,
     act_interval: u32,
+    is_turning: bool,
 }
 
 #[derive(Component)]
