@@ -60,11 +60,11 @@ struct Stats {
 
 impl Stats {
     fn player0_score(&self) -> f32 {
-        (self.destroyed_asteroids + self.destroyed_opponents) as f32 * 0.1
+        (self.destroyed_asteroids + self.destroyed_opponents) as f32
     }
 
     fn player1_score(&self) -> f32 {
-        self.destroyed_allies as f32 - self.timesteps as f32 * 0.0001
+        10.0 * self.destroyed_allies as f32 - self.timesteps as f32 * 0.001
     }
 }
 
