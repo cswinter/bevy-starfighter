@@ -1108,6 +1108,9 @@ fn ai(
                     gun_cooldown: fighter.remaining_bullet_cooldown.max(0)
                         as u32,
                     player: i as u32,
+                    shield_active: fighter.shield_active,
+                    shield_cooldown: fighter.shield_cooldown as f32
+                        / fighter.shield_recharge_period as f32,
                 });
             }
         }
@@ -1160,6 +1163,7 @@ fn ai(
                     dx: vel.x,
                     dy: vel.y,
                     lifetime: bullet.remaining_lifetime,
+                    player: bullet.player_id as u32,
                 }
             }));
         let action = agent.act_async::<act::FighterAction>(&obs);
@@ -1452,6 +1456,8 @@ pub mod entity {
         pub remaining_time: i32,
         pub gun_cooldown: u32,
         pub player: u32,
+        pub shield_active: bool,
+        pub shield_cooldown: f32,
     }
 
     #[derive(Featurizable)]
@@ -1473,6 +1479,7 @@ pub mod entity {
         pub dx: f32,
         pub dy: f32,
         pub lifetime: i32,
+        pub player: u32,
     }
 }
 
