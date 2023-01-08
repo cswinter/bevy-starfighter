@@ -60,11 +60,11 @@ struct Stats {
 
 impl Stats {
     fn player0_score(&self) -> f32 {
-        (self.destroyed_asteroids + self.destroyed_opponents) as f32
+        (self.destroyed_asteroids + self.destroyed_opponents) as f32 * 0.1
     }
 
     fn player1_score(&self) -> f32 {
-        10.0 * self.destroyed_allies as f32 - self.timesteps as f32 * 0.001
+        self.destroyed_allies as f32 - self.timesteps as f32 * 0.0001
     }
 }
 
@@ -154,7 +154,7 @@ pub fn base_app(
         .insert_resource(OpponentHandle(None))
         .insert_resource(RngState(SmallRng::seed_from_u64(settings.seed)))
         .insert_resource(ClearColor(Color::rgb(0.0, 0.0, 0.0)))
-        .insert_resource(RemainingTime(2700))
+        .insert_resource(RemainingTime(settings.max_game_length as i32))
         .insert_resource(Stats::default())
         .insert_resource(settings.clone())
         .insert_non_send_resource(Players(
@@ -451,20 +451,23 @@ fn spawn_fighter(
     };
     // Account for larger mass
     let acceleration_multiplier = if player_id == 0 { 5.0 } else { 1.0 };
+    let deceleration_multiplier = if player_id == 0 { 3.0 } else { 1.0 };
     let entity = cmd
         .spawn(Fighter {
             max_velocity: 1000.0 * stats_multiplier,
             acceleration: 1000000.0
                 * stats_multiplier
                 * acceleration_multiplier,
-            deceleration: 50000.0 * stats_multiplier,
+            deceleration: 1000000.0
+                * stats_multiplier
+                * deceleration_multiplier,
             drag_exp: 1.5,
             drag_coef: 0.02,
             turn_acceleration: 0.5,
             max_turn_speed: 8.0 * stats_multiplier,
             bullet_speed: 2500.0 * stats_multiplier,
-            bullet_lifetime: 50,
-            bullet_cooldown: if player_id == 0 { 24 } else { 48 },
+            bullet_lifetime: if player_id == 0 { 24 } else { 150 },
+            bullet_cooldown: if player_id == 0 { 24 } else { 72 },
             remaining_bullet_cooldown: 0,
             is_turning: false,
             player_id,
@@ -678,6 +681,7 @@ fn detect_collisions(
                         &mut players,
                         data1,
                     );
+                    cmd.entity(data2).despawn();
                 }
                 (CollisionType::Asteroid, CollisionType::Fighter) => {
                     take_hit(
@@ -689,6 +693,7 @@ fn detect_collisions(
                         &mut players,
                         data2,
                     );
+                    cmd.entity(data1).despawn();
                 }
                 (CollisionType::Bullet, CollisionType::Asteroid) => {
                     handle_bullet_asteroid_collision(
@@ -739,7 +744,7 @@ fn detect_collisions(
                             &mut players,
                             data2,
                         );
-                        cmd.entity(data2).despawn();
+                        cmd.entity(data1).despawn();
                     }
                 }
                 (CollisionType::Bullet, CollisionType::Bullet) => {
@@ -1192,82 +1197,92 @@ fn fighter_actions(
     settings: Res<Settings>,
 ) {
     for (action, id) in action_events.iter() {
-        let (mut fighter, transform, mut vel, mut imp, mut force, children) =
-            fighter.get_mut(*id).unwrap();
-        // Reset rotation and acceleration
-        imp.impulse = Vec2::new(0.0, 0.0);
-        force.force = Vec2::new(0.0, 0.0);
-        force.torque = 0.0;
-        fighter.is_turning = action.turn != act::Turn::None;
+        if let Ok((
+            mut fighter,
+            transform,
+            mut vel,
+            mut imp,
+            mut force,
+            children,
+        )) = fighter.get_mut(*id)
+        {
+            // Reset rotation and acceleration
+            imp.impulse = Vec2::new(0.0, 0.0);
+            force.force = Vec2::new(0.0, 0.0);
+            force.torque = 0.0;
+            fighter.is_turning = action.turn != act::Turn::None;
 
-        let rot = transform.rotation.xyz();
-        let mut angle = transform.rotation.to_axis_angle().1;
-        if rot.z < 0.0 {
-            angle = -angle;
-        }
-        let angle2 = angle + std::f32::consts::PI / 2.0;
+            let rot = transform.rotation.xyz();
+            let mut angle = transform.rotation.to_axis_angle().1;
+            if rot.z < 0.0 {
+                angle = -angle;
+            }
+            let angle2 = angle + std::f32::consts::PI / 2.0;
 
-        vel.angvel += match action.turn {
-            act::Turn::Left => fighter.turn_acceleration,
-            act::Turn::QuarterLeft => fighter.turn_acceleration * 0.25,
-            act::Turn::Right => -fighter.turn_acceleration,
-            act::Turn::QuarterRight => -fighter.turn_acceleration * 0.25,
-            act::Turn::None => 0.0,
-        } * settings.frameskip as f32;
-        vel.angvel = vel
-            .angvel
-            .clamp(-fighter.max_turn_speed, fighter.max_turn_speed);
-        let mut jet_visible = fighter.player_id == 0;
-        let speed = vel.linvel.length();
-        match action.thrust {
-            act::Thrust::On => {
-                let thrust = Vec2::new(angle2.cos(), angle2.sin())
-                    * fighter.acceleration;
-                force.force = thrust;
-            }
-            act::Thrust::Off => {
-                // Should integrate here rather than just multiplying by interval, whatever
-                vel.linvel *= 1.0
-                    - fighter.drag_coef
-                        * (speed / fighter.max_velocity).powf(fighter.drag_exp)
-                        * fighter.act_interval as f32;
-                jet_visible = false;
-            }
-            act::Thrust::Stop => {
-                if speed
-                    < fighter.deceleration * fighter.act_interval as f32
-                        / settings.frame_rate
-                {
-                    vel.linvel = Vec2::ZERO;
-                } else {
-                    force.force =
-                        -vel.linvel.normalize() * fighter.deceleration;
+            vel.angvel += match action.turn {
+                act::Turn::Left => fighter.turn_acceleration,
+                act::Turn::QuarterLeft => fighter.turn_acceleration * 0.25,
+                act::Turn::Right => -fighter.turn_acceleration,
+                act::Turn::QuarterRight => -fighter.turn_acceleration * 0.25,
+                act::Turn::None => 0.0,
+            } * settings.frameskip as f32;
+            vel.angvel = vel
+                .angvel
+                .clamp(-fighter.max_turn_speed, fighter.max_turn_speed);
+            let mut jet_visible = fighter.player_id == 0;
+            let speed = vel.linvel.length();
+            match action.thrust {
+                act::Thrust::On => {
+                    let thrust = Vec2::new(angle2.cos(), angle2.sin())
+                        * fighter.acceleration;
+                    force.force = thrust;
+                }
+                act::Thrust::Off => {
+                    // Should integrate here rather than just multiplying by interval, whatever
+                    vel.linvel *= 1.0
+                        - fighter.drag_coef
+                            * (speed / fighter.max_velocity)
+                                .powf(fighter.drag_exp)
+                            * fighter.act_interval as f32;
+                    jet_visible = false;
+                }
+                act::Thrust::Stop => {
+                    if speed < 1.0 {
+                        vel.linvel = Vec2::ZERO;
+                    } else {
+                        force.force =
+                            -vel.linvel.normalize() * fighter.deceleration;
+                    }
                 }
             }
-        }
-        jet.get_mut(*children.first().unwrap()).unwrap().is_visible =
-            jet_visible;
+            jet.get_mut(*children.first().unwrap()).unwrap().is_visible =
+                jet_visible;
 
-        if let act::Shoot::On = action.shoot {
-            if fighter.remaining_bullet_cooldown <= 0 {
-                stats.bullets_fired += 1;
-                spawn_bullet(
-                    &settings,
-                    &mut cmd,
-                    &mut meshes,
-                    &mut materials,
-                    transform.translation
-                        + 24.0
-                            * Vec3::new(angle2.cos(), angle2.sin(), 0.0)
-                            * if fighter.player_id == 0 { -0.0 } else { 1.0 },
-                    vel.linvel
-                        + Vec2::new(angle2.cos(), angle2.sin())
-                            * fighter.bullet_speed,
-                    fighter.bullet_lifetime,
-                    fighter.player_id,
-                );
-                fighter.remaining_bullet_cooldown =
-                    fighter.bullet_cooldown as i32;
+            if let act::Shoot::On = action.shoot {
+                if fighter.remaining_bullet_cooldown <= 0 {
+                    stats.bullets_fired += 1;
+                    spawn_bullet(
+                        &settings,
+                        &mut cmd,
+                        &mut meshes,
+                        &mut materials,
+                        transform.translation
+                            + 24.0
+                                * Vec3::new(angle2.cos(), angle2.sin(), 0.0)
+                                * if fighter.player_id == 0 {
+                                    -0.0
+                                } else {
+                                    1.0
+                                },
+                        vel.linvel
+                            + Vec2::new(angle2.cos(), angle2.sin())
+                                * fighter.bullet_speed,
+                        fighter.bullet_lifetime,
+                        fighter.player_id,
+                    );
+                    fighter.remaining_bullet_cooldown =
+                        fighter.bullet_cooldown as i32;
+                }
             }
         }
     }

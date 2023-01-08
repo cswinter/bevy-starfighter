@@ -12,8 +12,8 @@ struct Args {
     agent_path: Option<String>,
     #[clap(long, value_parser)]
     agent_asset: Option<String>,
-    #[clap(long, value_parser, default_value = "1")]
-    frameskip: u32,
+    #[clap(long, value_parser)]
+    frameskip: Option<u32>,
     /// Run in headless mode
     #[clap(long)]
     headless: bool,
@@ -21,8 +21,8 @@ struct Args {
     random_ai: bool,
     #[clap(long)]
     fixed_timestep: bool,
-    #[clap(long, value_parser, default_value = "1")]
-    act_interval: u32,
+    #[clap(long, value_parser)]
+    act_interval: Option<u32>,
     #[clap(long, value_parser)]
     ai_act_interval: Option<u32>,
     #[clap(long, value_parser, default_value = "1")]
@@ -64,29 +64,28 @@ fn set_window_icon(windows: NonSend<WinitWindows>) {
 
 fn main() {
     let args = Args::parse();
-    let settings = Settings {
-        seed: 0,
-        frame_rate: 90.0,
-        frameskip: args.frameskip,
-        fixed_timestep: args.fixed_timestep,
-        random_ai: args.random_ai,
-        agent_path: args.agent_path.clone(),
-        headless: args.headless,
-        enable_logging: true,
-        action_interval: args.act_interval,
-        ai_action_interval: args.ai_act_interval,
-        players: args.players,
-        asteroid_count: args.asteroid_count,
-        continuous_collision_detection: args.ccd,
-        respawn_time: args.respawn_time,
-        opponent_stats_multiplier: args.opponent_stats_multiplier,
-        max_game_length: 2 * 60 * 90, // 2 minutes
-        human_player: args.human_player,
-        difficulty_ramp: 20 * 90,
-        opponent_policy: args.agent_asset,
-        physics_debug_render: args.physics_debug_render,
-        log_diagnostics: args.log_diagnostics,
-    };
+    let mut settings = Settings::default();
+    if let Some(frameskip) = args.frameskip {
+        settings.frameskip = frameskip;
+    }
+    settings.fixed_timestep = args.fixed_timestep;
+    settings.random_ai = args.random_ai;
+    settings.agent_path = args.agent_path.clone();
+    settings.headless = args.headless;
+    settings.enable_logging = true;
+    if let Some(act_interval) = args.act_interval {
+        settings.action_interval = act_interval;
+    }
+    settings.ai_action_interval = args.ai_act_interval;
+    settings.players = args.players;
+    settings.asteroid_count = args.asteroid_count;
+    settings.continuous_collision_detection = args.ccd;
+    settings.respawn_time = args.respawn_time;
+    settings.opponent_stats_multiplier = args.opponent_stats_multiplier;
+    settings.human_player = args.human_player;
+    settings.opponent_policy = args.agent_asset;
+    settings.physics_debug_render = args.physics_debug_render;
+    settings.log_diagnostics = args.log_diagnostics;
     let mut app = bevy_starfighter::app(settings, vec![]);
 
     info!("Starting launcher: Native");
