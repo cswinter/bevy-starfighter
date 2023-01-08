@@ -4,6 +4,13 @@ TrainConfig(
         id: "BevyStarfighter",
         kwargs: "{\"frameskip\": 4, \"act_interval\": 12}",
     ),
+    rollout: (
+        num_envs: 512,
+    ),
+    optim: (
+        bs: 4096,
+        lr: 0.002,
+    ),
     net: (
         relpos_encoding: (
             extent: [8, 2],
