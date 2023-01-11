@@ -1091,6 +1091,8 @@ fn ai(
             return;
         }
         let mut actor_entities = vec![];
+        let mut xdir = 0.0;
+        let mut ydir = 0.0;
         for id in &*ids {
             if let Ok((fighter, transform, velocity)) = fighter.get(*id) {
                 let pos = transform.translation;
@@ -1112,8 +1114,13 @@ fn ai(
                     shield_cooldown: fighter.shield_cooldown as f32
                         / fighter.shield_recharge_period as f32,
                 });
+                xdir = direction_x;
+                ydir = direction_y;
             }
         }
+        // Rotates position/direction to align with direction of player 0
+        let rotate_x = |x: f32, y: f32| xdir * x + ydir * y;
+        let rotate_y = |x: f32, y: f32| -ydir * x + xdir * y;
         let score = if i == 0 {
             stats.player0_score()
         } else {
@@ -1137,6 +1144,11 @@ fn ai(
                         gun_cooldown: fighter.remaining_bullet_cooldown.max(0)
                             as u32,
                         player: i as u32,
+
+                        reldx: rotate_x(vel.x, vel.y),
+                        reldy: rotate_y(vel.x, vel.y),
+                        reldirection_x: rotate_x(direction_x, direction_y),
+                        reldirection_y: rotate_y(direction_x, direction_y),
                     }
                 },
             ))
@@ -1164,6 +1176,8 @@ fn ai(
                     dy: vel.y,
                     lifetime: bullet.remaining_lifetime,
                     player: bullet.player_id as u32,
+                    reldx: rotate_x(vel.x, vel.y),
+                    reldy: rotate_y(vel.x, vel.y),
                 }
             }));
         let action = agent.act_async::<act::FighterAction>(&obs);
@@ -1470,6 +1484,11 @@ pub mod entity {
         pub direction_y: f32,
         pub gun_cooldown: u32,
         pub player: u32,
+
+        pub reldx: f32,
+        pub reldy: f32,
+        pub reldirection_x: f32,
+        pub reldirection_y: f32,
     }
 
     #[derive(Featurizable)]
@@ -1480,6 +1499,9 @@ pub mod entity {
         pub dy: f32,
         pub lifetime: i32,
         pub player: u32,
+
+        pub reldx: f32,
+        pub reldy: f32,
     }
 }
 
