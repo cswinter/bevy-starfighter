@@ -58,7 +58,7 @@ fn main() {
         players: 2,
         ai_action_interval: Some(12),
         continuous_collision_detection: true,
-        opponent_policy: Some("versus-relpos-obsfix-128m".to_string()),
+        opponent_policy: Some("230111-134322-versus-reldir-1024m".to_string()),
         ..Default::default()
     };
     let mut app = bevy_starfighter::app(settings, vec![]);
