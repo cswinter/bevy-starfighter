@@ -92,6 +92,7 @@ pub struct Settings {
     pub opponent_policy: Option<String>,
     pub physics_debug_render: bool,
     pub log_diagnostics: bool,
+    pub disable_bloom: bool,
 }
 
 #[derive(Component)]
@@ -375,7 +376,7 @@ fn setup(
         &mut materials,
         &mut players,
     );
-    if settings.physics_debug_render {
+    if settings.physics_debug_render || settings.disable_bloom {
         cmd.spawn(Camera2dBundle::default());
     } else {
         cmd.spawn((
@@ -1572,6 +1573,7 @@ impl Default for Settings {
             opponent_policy: None,
             physics_debug_render: false,
             log_diagnostics: false,
+            disable_bloom: false,
         }
     }
 }
