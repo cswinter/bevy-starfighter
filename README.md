@@ -9,18 +9,18 @@ https://user-images.githubusercontent.com/12845088/213926967-753af1be-52d9-4958-
 Play the web version [here](https://cswinter.github.io/bevy-starfighter/).
 WASD to move, space to shoot.
 
-Run locally:
+Run locally (requries [Rust toolchain](https://rustup.rs/)):
 
 ```bash
 git clone https://github.com/cswinter/bevy-starfighter.git
 cd bevy-starfighter
-cargo run --bin native-launcher -- --agent-asset=versus-relpos-obsfix-128m --ccd --players=2 --ai-act-interval=12 --human-player
+cargo run --bin native-launcher -- --agent-asset=230111-134322-versus-reldir-1024m --ccd --players=2 --ai-act-interval=12 --human-player
 ```
 
 Run AI against itself:
 
 ```bash
-cargo run --bin native-launcher -- --agent-asset=versus-relpos-obsfix-512m --ccd --players=2 --ai-act-interval=12
+cargo run --bin native-launcher -- --agent-asset=230111-134322-versus-reldir-4096m --ccd --players=2 --ai-act-interval=12
 ```
 
 Train new AI:
@@ -35,46 +35,51 @@ poetry run python -u train.py --config=train.ron --checkpoint-dir=out
 
 ## Technical Details
 
-This sections goes into some of the specifics of how to apply [EntityGym Rust](https://github.com/entity-neural-network/entity-gym-rs) to real-time Bevy games that use [Heron](https://github.com/jcornaz/heron) as a physics engine.
+This sections goes into some of the specifics of how to apply [EntityGym Rust](https://github.com/entity-neural-network/entity-gym-rs) to real-time Bevy games that use [Rapier](https://github.com/dimforge/bevy_rapier) as a physics engine.
 
 
-### Basic setup
+### Faster than realtime headless mode
 
-To run the game in headless mode faster than realtime during training in a way that keeps the physics identical, we configure Heron to use a fixed `PhysicsSteps`:
+To run the game in headless mode faster than realtime during training in a way that keeps the physics identical, we configure Rapier with `TimestepMode::Fixed` ([src/lib.rs#L136](https://github.com/cswinter/bevy-starfighter/blob/b80ea2e620b4fa119e3d8039ecc6f771ad500ea5/src/lib.rs#L136)):
 
 ```rust
-app.insert_resource(
-    PhysicsSteps::every_frame(
-        Duration::from_secs_f64(settings.timestep_secs() as f64)
-    )
-);
+    let timestep_mode = if settings.frameskip > 1 || settings.headless {
+        TimestepMode::Fixed {
+            dt: 1.0 * settings.frameskip as f32 / settings.frame_rate as f32,
+            substeps: 1,
+        }
+    } else {
+        TimestepMode::Variable {
+            max_dt: 1.0 / settings.frame_rate,
+            time_scale: 1.0,
+            substeps: 1,
+        }
+    };
+    app.add_plugin(RapierPhysicsPlugin::<NoUserData>::pixels_per_meter(1.0))
+        .insert_resource(RapierConfiguration {
+            gravity: Vect::new(0.0, 0.0),
+            timestep_mode,
+            ..default()
+        })
 ```
 
-During deployment, we run the Bevy App with the same `FixedTimestep` to match real-time, while during training we run the the App without any delay during frames:
+Additionally, we configure the Bevy scheduler to run without any delay during frames ([src/lib.rs#L198](https://github.com/cswinter/bevy-starfighter/blob/b80ea2e620b4fa119e3d8039ecc6f771ad500ea5/src/lib.rs#L198)):
 
 ```rust
-// During deployment
-main_system.with_run_criteria(
-    FixedTimestep::step(settings.timestep_secs() as f64)
-);
-
-// During training
-app.insert_resource(
-    ScheduleRunnerSettings::run_loop(
-        Duration::from_secs_f64(0.0)
-    )
-);
+    app.insert_resource(ScheduleRunnerSettings::run_loop(
+        Duration::from_secs_f64(0.0),
+    ))
 ```
 
 ### Faster physics during training
 
 To speed up the AI and bring its abilities closer to those of a human player, we only allow it to take an action every `ai_act_interval` frames (by default, every 12 frames = 133ms).
-While training, we don't really care about the intermediate physics steps, so we can speed up the simulation by reducing the number of frames and increasing the physics timestep.
+While training, we don't really care about the intermediate physics steps, so we can speed up the simulation by not calculating intermediary frames.
 For some reason, the fidelity of the simulation degrades when skipping too many frames.
 Empirically, combining up to 4 physics steps into a single frame (`--frameskip=4`) still gives fairly accurate physics.
 
-Observing game with 4x accelerated physics:
+Command to observe game with 4x accelerated physics:
 
 ```bash
-cargo run --bin native-launcher -- --frameskip=4 --ai-act-interval=12 --agent-asset=versus-relpos-obsfix-512m --ccd
+cargo run --bin native-launcher -- --agent-asset=230111-134322-versus-reldir-4096m --ccd --players=2 --ai-act-interval=12 --frameskip=4
 ```
