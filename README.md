@@ -2,13 +2,12 @@
 
 A simple 2D space shooter game with deep neural network opponents built with [Bevy](https://bevyengine.org/) and [EntityGym](https://github.com/entity-neural-network/entity-gym-rs).
 
-https://user-images.githubusercontent.com/12845088/194914852-359bdcc7-92b0-4b11-8797-c50b1b767f67.mp4
-
+https://user-images.githubusercontent.com/12845088/213926967-753af1be-52d9-4958-8b14-af86c1c3afb7.mp4
 
 ## Usage
 
 Play the web version [here](https://cswinter.github.io/bevy-starfighter/).
-WAD to move, space to shoot.
+WASD to move, space to shoot.
 
 Run locally:
 
